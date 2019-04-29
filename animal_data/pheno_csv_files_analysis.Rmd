@@ -5,10 +5,10 @@ output:
   html_notebook: default
 ---
 
-
 ```{r}
 # Set the working directory to the folder with the data
-setwd("/Users/David/Desktop/MoTrPAC/march_2019/pheno_data/PASS1A.6M-RLS 0,01/3-Data Sets/")
+# setwd("/Users/David/Desktop/MoTrPAC/march_2019/pheno_data/PASS1A.6M-RLS 0,01/3-Data Sets/")
+setwd("/Users/David/Desktop/MoTrPAC/april_2019/DMAQC_Transfer_Pass_1A.6M_1/3-Data_Sets/")
 all_csvs = list.files(".") # get all files in dir
 # read all files
 csv_data = list()
@@ -140,5 +140,40 @@ summary(lm(distance~site+sex,data=trained_animals_data))
 
 ## Biospecimen data
 
+```{r, fig.align="center",out.height='50%',out.width='50%'}
+# Analysis of biospecimen data
+spec_data = csv_data[[which(grepl("Specimen.Processing.csv",names(csv_data)))]]
+# Parse the times and compute the difference between the freeze time and 
+# the collection time
+time_to_freeze1 = as.difftime(spec_data$t_freeze,units = "mins") -
+  as.difftime(spec_data$t_collection,units="mins")
+# For some samples we have the edta spin time instead of the collection
+# time, use these when there are no other options
+time_to_freeze2 = as.difftime(spec_data$t_freeze,units = "mins") -
+  as.difftime(spec_data$t_edtaspin,units="mins")
+time_to_freeze = time_to_freeze1
+# Fill in the NAs by taking the time between the edta spin and the freeze
+table(is.na(time_to_freeze1),is.na(time_to_freeze2))
+time_to_freeze[is.na(time_to_freeze1)] = time_to_freeze2[is.na(time_to_freeze1)]
+spec_data$time_to_freeze = as.numeric(time_to_freeze)
+hist(spec_data$time_to_freeze,breaks=100)
+
+# Add site by name
+site_names = c("910"="Joslin","930"="Florida")
+spec_data$site = site_names[as.character(spec_data$siteid)]
+
+inds = !is.na(time_to_freeze1)
+inds = grepl("adipose",spec_data$sampletypedescription,ignore.case = T)
+inds = grepl("heart",spec_data$sampletypedescription,ignore.case = T) | 
+  grepl("liver",spec_data$sampletypedescription,ignore.case = T) |
+  grepl("colon",spec_data$sampletypedescription,ignore.case = T) | 
+  grepl("vastus",spec_data$sampletypedescription,ignore.case = T)
+# Here we use an interaction term and not addition as the R^2 is >2 times
+# greater this way
+summary(lm(time_to_freeze~sampletypedescription:site,data=spec_data[inds,]))
+par(mar=c(10,2,2,2))
+boxplot(time_to_freeze~site:sampletypedescription,data=spec_data[inds,],
+        ylab="Time to freeze",las=2)
+```
 
 

@@ -1,5 +1,6 @@
 # Set the working directory to the folder with the data
 setwd("/Users/David/Desktop/MoTrPAC/march_2019/pheno_data/PASS1A.6M-RLS 0,01/3-Data Sets/")
+setwd("/Users/David/Desktop/MoTrPAC/april_2019/DMAQC_Transfer_Pass_1A.6M_1/3-Data_Sets/")
 all_csvs = list.files(".") # get all files in dir
 # read all files
 csv_data = list()
@@ -48,13 +49,13 @@ summary(dist_lm)
 plot(dist_lm$residuals,main="Linear regression, raw residuals",ylab="residual")
 library(MASS)
 plot(studres(dist_lm),main="Linear regression, studentized residuals",ylab="residual")
-outliers = abs(studres(dist_lm)) > 2
+outliers = abs(studres(dist_lm)) > 1
 table(outliers)
 trained_animals_data[outliers,"comments"]
+trained_animals_data[outliers,"timesshock"]
 plot(dist_lm$fitted.values,trained_animals_data$distance,lwd=2,
      main="Fitted vs real values",ylab="Distances",xlab="Fitted distances")
 abline(0,1,col="red",lty=2,lwd=3)
-
 
 # Load additional information about the animals
 registr_data = csv_data[[which(grepl("Regist",names(csv_data)))]]
@@ -103,4 +104,44 @@ boxplot(weight~site+sex,data=trained_animals_data,col="cyan",ylab="Weight",
 # Regress time shocked and distance vs. site and sex
 summary(lm(timesshock~site+sex,data=trained_animals_data))
 summary(lm(distance~site+sex,data=trained_animals_data))
+
+# Analysis of biospecimen data
+spec_data = csv_data[[which(grepl("Specimen.Processing.csv",names(csv_data)))]]
+# Parse the times and compute the difference between the freeze time and 
+# the collection time
+time_to_freeze1 = as.difftime(spec_data$t_freeze,units = "mins") -
+  as.difftime(spec_data$t_collection,units="mins")
+# For some samples we have the edta spin time instead of the collection
+# time, use these when there are no other options
+time_to_freeze2 = as.difftime(spec_data$t_freeze,units = "mins") -
+  as.difftime(spec_data$t_edtaspin,units="mins")
+time_to_freeze = time_to_freeze1
+# Fill in the NAs by taking the time between the edta spin and the freeze
+table(is.na(time_to_freeze1),is.na(time_to_freeze2))
+time_to_freeze[is.na(time_to_freeze1)] = time_to_freeze2[is.na(time_to_freeze1)]
+spec_data$time_to_freeze = as.numeric(time_to_freeze)
+hist(spec_data$time_to_freeze,breaks=100)
+
+# Add site by name
+site_names = c("910"="Joslin","930"="Florida")
+spec_data$site = site_names[as.character(spec_data$siteid)]
+
+inds = !is.na(time_to_freeze1)
+table(spec_data$sampletypedescription)
+inds = grepl("heart",spec_data$sampletypedescription,ignore.case = T) | 
+  grepl("liver",spec_data$sampletypedescription,ignore.case = T) |
+  grepl("colon",spec_data$sampletypedescription,ignore.case = T) | 
+  grepl("vastus",spec_data$sampletypedescription,ignore.case = T) |
+  grepl("Gast",spec_data$sampletypedescription,ignore.case = T) 
+# Here we use an interaction term and not addition as the R^2 is >2 times
+# greater this way
+# summary(lm(time_to_freeze~sampletypedescription:site,data=spec_data[inds,]))
+par(mar=c(10,2,2,2))
+boxplot(time_to_freeze~site:sampletypedescription,data=spec_data[inds,],
+        ylab="Time to freeze",las=2)
+
+inds = grepl("plasma",spec_data$sampletypedescription,ignore.case = T)
+par(mar=c(10,4,2,2))
+boxplot(time_to_freeze~site:sampletypedescription,data=spec_data[inds,],
+        ylab="Time to freeze",las=2)
 
