@@ -10,6 +10,8 @@ qc_files = list(
   sinai = "./sinai/Sinai_batch1_qc_info_bic.csv"
 )
 
+dmaqc_metadata_path = "/Users/David/Desktop/MoTrPAC/data/april_2019/DMAQC_Transfer_Pass_1A.6M_1/3-Data_Sets/"
+
 cols_for_qc_analysis = c("RIN","reads","pct_GC","pct_rRNA","pct_globin",
                       "pct_umi_dup","median_5_3_bias","pct_trimmed_bases",
                       "pct_multimapped")
@@ -100,4 +102,21 @@ rnaseq_meta = cbind(rnaseq_meta,get_problematic_samples(rnaseq_meta))
 colnames(rnaseq_meta)[ncol(rnaseq_meta)] = "IsFlagged"
 table(rnaseq_meta$IsFlagged)
 save(rnaseq_meta,file="rnaseq_meta.RData")
+apply(rnaseq_meta,2,function(x)length(unique(x)))[1:20]
 
+# Add the metadata from DMAQC
+# Time points, age group - Animal.Key, use PID 
+# (will be different in human - time will be a sample data not animal)
+# Sex, age, weight by PID: Regisration sheet
+dmaqc_files = list.files(dmaqc_metadata_path,full.names = T)
+animal_key_file = dmaqc_files[grepl("Animal.Key",dmaqc_files)]
+animal_regstr_file = dmaqc_files[grepl("Regis",dmaqc_files)]
+animal_key_data = read.csv(animal_key_file)
+animal_reg_data = read.csv(animal_regstr_file)
+rownames(animal_key_data) = animal_key_data$pid
+rownames(animal_reg_data) = animal_reg_data$pid
+animal_metadata = cbind(animal_key_data,animal_reg_data[rownames(animal_key_data),])
+save(animal_metadata,file="../animal_metadata.RData")
+
+table(animal_metadata$ANIRandGroup)
+table(animal_metadata$sex)

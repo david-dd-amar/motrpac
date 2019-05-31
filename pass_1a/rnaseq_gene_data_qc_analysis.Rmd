@@ -1,22 +1,23 @@
 ---
 title: "Phase 1A: RNA-seq data analysis"
 output:
-  pdf_document: default
+  pdf_document: 
+    number_sections: true
   html_notebook: default
 author: David Amar, Archana Raja 
 institute: Stanford BIC
 ---
 
-Phase 1A raw data was preprocessed at the BIC using our pipeline, implemented according to the MOP. Here we present QC analyses performed on the output of the pipeline.
+Phase 1A raw data was preprocessed at the BIC using our pipeline, which was implemented according to the MOP. Here we present QC analyses performed on the output of the pipeline.
 
 # Input data
 
+Read the data from both sites - FPKMs, counts, and metadata (including the QC scores).
+
 ```{r,results='hide',warning=FALSE,message=FALSE,error=FALSE}
 setwd("/Users/David/Desktop/MoTrPAC/data/pass_1a/rnaseq/")
-library(data.table)
-library(DESeq2)
-library(preprocessCore)
-library(ggplot2)
+library(data.table);library(DESeq2)
+library(preprocessCore);library(ggplot2)
 
 # Data paths
 site2fpkm_path = list(
@@ -28,7 +29,7 @@ site2genecount_path = list(
   sinai = "./sinai/rsem_genes_count_pass1a_batch1_Sinai.csv"
 )
 
-# load the metadata
+# load the metadata of the samples
 # this is a data frame called rnaseq_meta that contains 
 # the qc and sample metadata from both sites 
 load("./rnaseq_meta.RData")
@@ -38,7 +39,50 @@ rnaseq_meta[rnaseq_meta=="N/A"] = NA
 print("Number of samples flagged according to the MOP's thersholds:")
 print(sum(rnaseq_meta$IsFlagged))
 
-# read the data in
+# Metadata of the animals and biospecimen: analyze the DMAQC data directly
+# This is a merged data frame containing the animal key and
+# registry data from dmaqc, created using:
+dmaqc_metadata_path = 
+  "/Users/David/Desktop/MoTrPAC/data/april_2019/DMAQC_Transfer_Pass_1A.6M_1/3-Data_Sets/"
+dmaqc_files = list.files(dmaqc_metadata_path,full.names = T)
+animal_key_file = dmaqc_files[grepl("Animal.Key",dmaqc_files)]
+animal_regstr_file = dmaqc_files[grepl("Regis",dmaqc_files)]
+animal_acute_test_file = dmaqc_files[grepl("Acute",dmaqc_files)]
+animal_acute_test_data = read.csv(animal_acute_test_file,stringsAsFactors = F)
+animal_key_data = read.csv(animal_key_file,stringsAsFactors = F)
+animal_reg_data = read.csv(animal_regstr_file,stringsAsFactors = F)
+rownames(animal_key_data) = animal_key_data$pid
+rownames(animal_reg_data) = animal_reg_data$pid
+rownames(animal_acute_test_data) = animal_acute_test_data$pid
+animal_metadata = cbind(animal_key_data,animal_reg_data[rownames(animal_key_data),],
+                        animal_acute_test_data[rownames(animal_key_data),])
+# Show some fields
+print("Animal metadata, time label table:")
+print(table(animal_metadata$ANIRandGroup))
+print("Animal metadata, sex table:")
+print(table(animal_metadata$sex))
+
+# Analysis of biospecimen data
+specimen_data_path = dmaqc_files[grepl("Specimen.Processing.csv",dmaqc_files)]
+specimen_data = read.csv(specimen_data_path,stringsAsFactors = F)
+rownames(specimen_data) = as.character(specimen_data$labelid)
+# Parse the times and compute the difference between the freeze time and 
+# the collection time
+time_to_freeze1 = as.difftime(specimen_data$t_freeze,units = "mins") -
+  as.difftime(specimen_data$t_collection,units="mins")
+# For some samples we have the edta spin time instead of the collection
+# time, use these when there are no other options
+time_to_freeze2 = as.difftime(specimen_data$t_freeze,units = "mins") -
+  as.difftime(specimen_data$t_edtaspin,units="mins")
+time_to_freeze = time_to_freeze1
+# Fill in the NAs by taking the time between the edta spin and the freeze
+table(is.na(time_to_freeze1),is.na(time_to_freeze2))
+time_to_freeze[is.na(time_to_freeze1)] = time_to_freeze2[is.na(time_to_freeze1)]
+specimen_data$time_to_freeze = as.numeric(time_to_freeze)
+hist(specimen_data$time_to_freeze,breaks=100)
+print("Histogram of freeze times, computed from the DMAQC data")
+
+# Read the gene expression data in
 site2fpkm = list()
 site2counts = list()
 for(site in names(site2fpkm_path)){
@@ -54,13 +98,24 @@ for(site in names(site2fpkm_path)){
   currcounts = currcounts[,-1]
   site2counts[[site]] = currcounts
 }
+
+# At this point we have all count and FPKM data as well as three shources
+# of non-transcriptomic data:
+# rnaseq_meta (rownames are vial_label, which is labelid) - assay qc scores
+# animal_metadata (rownames are pids) - animal/subject level data like sex, weight, etc.
+# Note that animal and sample here are the same. The human data will be different as we
+# will have repeated samples.
+# specimen_data (rownames are labelid, which is vial_label) - 
+#     bioscpecimen level data like time to freeze
 ```
 
-# PCA plots
+# PCA plots (all samples)
+
+We tested two simple ways to normalize the count data: (1) FPKM, and (2) factor normalized counts with and without variance stabilizing transformations (to accound for gene dispersion). 
 
 ## FPKM data
 
-```{r, fig.align="center",out.height='50%',out.width='50%'}
+```{r, fig.align="center",out.height='70%',out.width='70%'}
 #' Takes an FPKM matrix, removes lowly expressed genes and log transform
 #' the remaining matrix
 #' @return A matrix of log transformed FPKMs
@@ -131,21 +186,24 @@ ggplot(df,aes(x=PC4, y=PC3,shape=site, color=tissue)) +
 
 ## Normalized counts
 
-```{r, fig.align="center",out.height='50%',out.width='50%',eval=FALSE}
+```{r, fig.align="center",out.height='70%',out.width='70%',message=FALSE,warning=FALSE,eval=TRUE}
 # Pipeline 2: work with count data
 # Combine the two count matrices
 count_matrix = as.matrix(cbind(site2counts[[1]],site2counts[[2]]))
 #' Use DESeq2 to estimate sample factors and gene dispersion
 #' @return a DESeqDataSet
-process_counts<-function(count_matrix){
+process_counts<-function(count_matrix,plotFactors=T){
   mode(count_matrix) = "integer"
   se <- SummarizedExperiment(count_matrix)
   dds <- DESeqDataSet(se, design = ~ 1 )
   #Estimate size factors
   dds <- estimateSizeFactors( dds )
-  # Plot the size factors
-  plot(sizeFactors(dds), colSums(counts(dds)))
-  abline(lm(colSums(counts(dds)) ~ sizeFactors(dds) + 0))
+  if(plotFactors){
+      # Plot the size factors
+    plot(sizeFactors(dds), colSums(counts(dds)),ylab="Library size",
+         xlab = "DESeq estimated size factors")
+    abline(lm(colSums(counts(dds)) ~ sizeFactors(dds) + 0))
+  }
   dds <- estimateDispersions(dds)
   return(dds)
 }
@@ -163,68 +221,155 @@ pc2 <- prcomp( t( assay(vsd) ) )
 counts_pcax2 = pc2$x
 # PCA plots
 df = data.frame(counts_pcax1[,1:10],
-                tissue = rnaseq_meta[rownames(counts_pcax),"Tissue"],
-                site = rnaseq_meta[rownames(counts_pcax),"site"])
+                tissue = rnaseq_meta[rownames(counts_pcax1),"Tissue"],
+                site = rnaseq_meta[rownames(counts_pcax1),"site"])
 ggplot(df,aes(x=PC1, y=PC2,shape=site, color=tissue)) + 
   geom_point(size=2) + ggtitle("PCA using normalized counts") + 
   theme(plot.title = element_text(hjust = 0.5))
 df = data.frame(counts_pcax2[,1:10],
-                tissue = rnaseq_meta[rownames(counts_pcax),"Tissue"],
-                site = rnaseq_meta[rownames(counts_pcax),"site"])
+                tissue = rnaseq_meta[rownames(counts_pcax2),"Tissue"],
+                site = rnaseq_meta[rownames(counts_pcax2),"site"])
 ggplot(df,aes(x=PC1, y=PC2,shape=site, color=tissue)) + 
   geom_point(size=2) + ggtitle("PCA using normalized counts (vsd)") + 
   theme(plot.title = element_text(hjust = 0.5))
 ```
 
-# Site comparison using the gastro samples
+# Within tissue analysis
+
+Here we take each tissue and analyze its samples. We quantile normalize the data and run PCA. For the top principal components (5) we compute their association with the metadata. Metadata in this context is all non-transcriptomic data, which includes technical and clinical variables.
+
+```{r}
+
+assay_cols_for_qc_analysis = c("RIN","reads","pct_GC","pct_rRNA","pct_globin",
+                      "pct_umi_dup","median_5_3_bias","pct_trimmed_bases",
+                      "pct_multimapped")
+animal_data_cols_for_qc_analysis = c("siteID","weight",
+                                     "Batch","sex","distance","howlongshock")
+
+break_label_id<-function(x){
+  if(nchar(x)!=11){stop("Input size is not 11 char long")}
+  if(is.na(as.numeric(x))){stop("Input is not a number")}
+  bid = substr(x,1,5)
+  tp = substr(x,6,7)
+  tissue = substr(x,8,9)
+  aliq = substr(x,10,11)
+  return(list(bid=bid,tp=tp,tissue_code=tissue,aliq=aliq))
+}
+
+parse_shocktime <-function(x){
+  if(length(x)==0||nchar(x)==0||is.na(x)||is.null(x)){return(0)}
+  arr = strsplit(x,split = ":")[[1]]
+  num = as.numeric(arr[1])*60 + as.numeric(arr[2])
+  # print(num)
+  return(num)
+}
+
+# helper function to get the metadata (all non-assay data in one place)
+# specimen data is optional (we want it for time-related variables for now)
+get_sample_metadata<-function(labelids,assay_data,animal_data,specimen_data=NULL){
+  labelids = as.character(labelids)
+  labelid2pids = as.character(assay_data$PID)
+  names(labelid2pids) = as.character(assay_data[,1])
+  if(!is.null(specimen_data)){
+      labelid2pids2 = as.character(specimen_data$pid)
+      names(labelid2pids2) = as.character(specimen_data$labelid)
+      labelid2pids = c(labelid2pids,labelid2pids2)
+  }
+  m = cbind(assay_data[labelids,],animal_data[labelid2pids[labelids],])
+  if(!is.null(specimen_data)){m = cbind(m,specimen_data[labelids,])}
+  return(m)
+}
+
+# # A hack - As of May 2019, the vial ids in the RNA-seq metadata
+# # do not match the label ids from DMAQC (poweder vs. non-powder tissue). 
+# # We therefore label the data by concatenating the bid,
+# # tp, and the tissue name
+# labels1 = paste(rnaseq_meta$BID,tolower(rnaseq_meta$Tissue),sep=";")
+# names(labels1) = rnaseq_meta$vial_label
+# labels2 = paste(specimen_data$bid,tolower(specimen_data$sampletypedescription),sep=";")
+# names(labels2) = specimen_data$labelid
+# # check samples with no duplication at the label level
+# shared_samples = intersect(labels1,labels2)
+# rownames(specimen_data) = labels2
+# rownames(rnaseq_meta) = labels1
+
+labelids = rnaseq_meta$vial_label
+test = get_sample_metadata(labelids,rnaseq_meta,animal_metadata)
+
+rnaseq_meta_batchs = unique(rnaseq_meta[,c("GET_site","Tissue")])
+dataset2pcs = list()
+for(i in 1:nrow(rnaseq_meta_batchs)){
+  curr_site = rnaseq_meta_batchs[i,1]
+  curr_tissue = rnaseq_meta_batchs[i,2]
+  curr_samples = as.character(rnaseq_meta$vial_label[rnaseq_meta$GET_site==curr_site &
+                                          rnaseq_meta$Tissue==curr_tissue])
+  # For rat data, take samples whose label id starts with "9"
+  curr_samples = curr_samples[grepl("^9",curr_samples)]
+  curr_data = process_fpkm1(fpkm_all[,curr_samples])
+  curr_data = run_quantile_normalization(curr_data)
+  curr_pca = prcomp(t(curr_data))
+  curr_pcax = curr_pca$x[,1:10]
+  curr_meta = get_sample_metadata(curr_samples,rnaseq_meta,animal_metadata)
+  curr_meta = curr_meta[,c(assay_cols_for_qc_analysis,
+                           animal_data_cols_for_qc_analysis)]
+  curr_meta$howlongshock = sapply(curr_meta$howlongshock,parse_shocktime)
+  corrs = cor(curr_pcax,curr_meta)
+  corrplot(corrs)
+}
+
+```
+
+# Site comparison using the Gastrocnemius samples
 
 ## Load the data
 
-```{r, fig.align="center",out.height='50%',out.width='50%'}
+```{r, fig.align="center",out.height='70%',out.width='70%'}
 # tissue vector - used below for getting the subset of 
-# gastro samples
+# Gastrocnemius samples
 tissue = rnaseq_meta$Tissue
 names(tissue) = rownames(rnaseq_meta)
-# get the gastro samples from each site
-gastro_fpkm = lapply(site2fpkm,
-    function(x,y)x[,grepl("gastro",y[colnames(x)],ignore.case = T)],y=tissue)
-print("Gastro samples, data dim:")
-print(sapply(gastro_fpkm,dim))
+# get the Gastrocnemius samples from each site
+Gastrocnemius_fpkm = lapply(site2fpkm,
+    function(x,y)x[,grepl("Gastrocnemius",y[colnames(x)],ignore.case = T)],y=tissue)
+print("Gastrocnemius samples, data dim:")
+print(sapply(Gastrocnemius_fpkm,dim))
 # Process the FPKM data matrix from each site separately
-gastro_fpkm_processed = lapply(gastro_fpkm,process_fpkm1)
+Gastrocnemius_fpkm_processed = lapply(Gastrocnemius_fpkm,process_fpkm1)
 print("Filtered FPKM data (separately for each site):")
-print(sapply(gastro_fpkm_processed,dim))
-shared_genes = intersect(rownames(gastro_fpkm_processed[[1]]),
-                         rownames(gastro_fpkm_processed[[2]]))
+print(sapply(Gastrocnemius_fpkm_processed,dim))
+shared_genes = intersect(rownames(Gastrocnemius_fpkm_processed[[1]]),
+                         rownames(Gastrocnemius_fpkm_processed[[2]]))
 print("Number of shared genes that survive the filter above:")
 print(length(shared_genes))
 # Merge the datasets, store in a single data frame
-gastro_fpkm_mat = cbind(gastro_fpkm_processed[[1]][shared_genes,],
-                        gastro_fpkm_processed[[2]][shared_genes,])
+Gastrocnemius_fpkm_mat = cbind(Gastrocnemius_fpkm_processed[[1]][shared_genes,],
+                        Gastrocnemius_fpkm_processed[[2]][shared_genes,])
 
 # Analysis of the metadata
-gastro_metadata = rnaseq_meta[colnames(gastro_fpkm_mat),]
+Gastrocnemius_metadata = rnaseq_meta[colnames(Gastrocnemius_fpkm_mat),]
 # We by default keep the vial sample id, which is different even if 
 # the biospecimen id is the same. 
 # This vector keeps the BID+PIDs
-sample_id = paste(gastro_metadata$BID,gastro_metadata$PID,sep=";")
-names(sample_id) = rownames(gastro_metadata)
+sample_id = paste(Gastrocnemius_metadata$BID,Gastrocnemius_metadata$PID,sep=";")
+names(sample_id) = rownames(Gastrocnemius_metadata)
 print("Do we have a copy from each site?")
 all(table(sample_id)==2) # QC: make sure we have two copies for each id
 # Reorder the data by the site and sample id
-gastro_metadata = gastro_metadata[order(gastro_metadata$site,sample_id),]
-sample_id = sample_id[rownames(gastro_metadata)]
+Gastrocnemius_metadata = Gastrocnemius_metadata[order(Gastrocnemius_metadata$site,sample_id),]
+sample_id = sample_id[rownames(Gastrocnemius_metadata)]
 ```
 
-## Simple QC scores comparison
+## QC scores: site comparison
 
-```{r, fig.align="center",out.height='50%',out.width='50%',warning=FALSE,error=FALSE,message=FALSE}
+Here we compare the two sites by taking all numeric qc scores. We compare the two sites using a paired non-parametric test (Wilcoxon).
+
+```{r, fig.align="center",out.height='70%',out.width='70%',warning=FALSE,error=FALSE,message=FALSE}
 metadata2site_pval = c()
-site_ind = gastro_metadata$site==gastro_metadata$site[1]
+site_ind = Gastrocnemius_metadata$site==Gastrocnemius_metadata$site[1]
 # We go over all numeric columns in the metadata matrix and use
 # a paired Wilcoxon test to estimate site differences
-for(col in names(gastro_metadata)){
-  x = gastro_metadata[[col]]
+for(col in names(Gastrocnemius_metadata)){
+  x = Gastrocnemius_metadata[[col]]
   if(! mode(x)=="numeric"){next}
   # data are ordered by site and sample id, which keeps the correct
   # order for the paired test
@@ -244,21 +389,24 @@ print("Top pct_ qc scores that differ between sites:")
 print(selected_qc_comparisons[grepl("pct_",names(selected_qc_comparisons))])
 ```
 
+The plot below shows the site differences for selected scores.
 
-```{r, fig.align="center",out.height='50%',out.width='50%'}
+```{r, fig.align="center",out.height='70%',out.width='70%'}
 # Comparison 1: selected qc scores
 par(mfrow=c(2,2))
-boxplot(pct_umi_dup~site,data=gastro_metadata,main="% UMI dup")
-boxplot(r_260_230~site,data=gastro_metadata,main = "260/230")
+boxplot(pct_umi_dup~site,data=Gastrocnemius_metadata,main="% UMI dup")
+boxplot(r_260_230~site,data=Gastrocnemius_metadata,main = "260/230")
 abline(h = 1.8,lty=2,col="red")
-boxplot(pct_rRNA~site,data=gastro_metadata,main="%rRNA")
+boxplot(pct_rRNA~site,data=Gastrocnemius_metadata,main="%rRNA")
 abline(h = 20,lty=2,col="red")
-boxplot(pct_globin~site,data=gastro_metadata,main="%Globin")
+boxplot(pct_globin~site,data=Gastrocnemius_metadata,main="%Globin")
 ```
 
 ## FPKM data comparison
 
-```{r, fig.align="center",out.height='50%',out.width='50%'}
+We next compare the sites by looking at the boxplot of the sample data (after removing lowly expressed genes).
+
+```{r, fig.align="center",out.height='70%',out.width='70%'}
 # Comparison 2: boxplots
 #' Helper function to get a color set by a discrete vector
 get_cols_vector_from_names<-function(v,pl_func = topo.colors){
@@ -270,55 +418,70 @@ get_cols_vector_from_names<-function(v,pl_func = topo.colors){
   return(list(newv,cols))
 }
 currcols = get_cols_vector_from_names(
-  rnaseq_meta[colnames(gastro_fpkm_mat),"site"],rainbow)
+  rnaseq_meta[colnames(Gastrocnemius_fpkm_mat),"site"],rainbow)
 # Select a set of samples for the plot (too many samples otherwise)
 inds_for_boxplot = c(1:10,81:90)
-boxplot(gastro_fpkm_mat[,inds_for_boxplot],
+x_for_boxplot = Gastrocnemius_fpkm_mat[,inds_for_boxplot]
+boxplot(x_for_boxplot,names=rep("",ncol(x_for_boxplot)),
         col=currcols[[1]][inds_for_boxplot],
-        ylim = c(0,20)) # extend lim to have room for legend
+        ylim = c(0,20),ylab="log2 FPKM") # extend lim to have room for legend
 legend(x="top",names(currcols[[2]]),fill=currcols[[2]])
 ```
 
+We next plot the PCA of the Gastrocnemius data, coloring the samples by site, shapre corresponds to sex. Two samples had NA for PID (controls?) and where excluded.
 
-```{r, fig.align="center",out.height='50%',out.width='50%'}
+```{r, fig.align="center",out.height='70%',out.width='70%'}
 # Comparison 3: PCA
 # Attempt 1: Take the FPKM data and run the PCA
-gastro_fpkm_pca = prcomp(t(gastro_fpkm_mat))
-gastro_fpkm_pcax = gastro_fpkm_pca$x
-df = data.frame(gastro_fpkm_pcax[,1:10],
-                shape=gastro_metadata$site, color=gastro_metadata$site,
-                sample = sample_id[rownames(gastro_fpkm_pcax)])
+Gastrocnemius_fpkm_pca = prcomp(t(Gastrocnemius_fpkm_mat))
+Gastrocnemius_fpkm_pcax = Gastrocnemius_fpkm_pca$x
+df = data.frame(Gastrocnemius_fpkm_pcax[,1:10],
+                shape=Gastrocnemius_metadata$site, site=Gastrocnemius_metadata$site,
+                sample = sample_id[rownames(Gastrocnemius_fpkm_pcax)],
+                sex = as.factor(animal_metadata[Gastrocnemius_metadata$PID,"sex"]))
 df = df[order(df$sample),]
 # Add lines between matching samples (i.e., same sample, different site)
-ggplot(df,aes(x=PC1, y=PC2, shape=shape, color=color,group=sample)) +
-  geom_point(size=2) + geom_path(size=0.05,color="blue")
+ggplot(df,aes(x=PC1, y=PC2, shape=sex, color=site,group=sample)) +
+  geom_point(size=2) + geom_path(size=0.02,color="blue") +
+  ggtitle("PCs 1 and 2: Gastrocnemius samples") + 
+  theme(plot.title = element_text(hjust = 0.5))
 # Retry - quantile normalization before PCA (slightly cleaner)
-gastro_fpkm_mat_q = run_quantile_normalization(gastro_fpkm_mat)
-gastro_fpkm_pca = prcomp(t(gastro_fpkm_mat_q))
-gastro_fpkm_pcax = gastro_fpkm_pca$x
-df = data.frame(gastro_fpkm_pcax[,1:10],
-                shape=gastro_metadata$site, color=gastro_metadata$site,
-                sample = sample_id[rownames(gastro_fpkm_pcax)])
+Gastrocnemius_fpkm_mat_q = run_quantile_normalization(Gastrocnemius_fpkm_mat)
+Gastrocnemius_fpkm_pca = prcomp(t(Gastrocnemius_fpkm_mat_q))
+Gastrocnemius_fpkm_pcax = Gastrocnemius_fpkm_pca$x
+df = data.frame(Gastrocnemius_fpkm_pcax[,1:10],
+                shape=Gastrocnemius_metadata$site, site=Gastrocnemius_metadata$site,
+                sample = sample_id[rownames(Gastrocnemius_fpkm_pcax)],
+                sex = as.factor(animal_metadata[Gastrocnemius_metadata$PID,"sex"]))
 df = df[order(df$sample),]
 # Add lines between matching samples (i.e., same sample, different site)
-ggplot(df,aes(x=PC1, y=PC2, shape=shape, color=color,group=sample)) +
-  geom_point(size=2) + geom_path(size=0.05,color="blue")
+ggplot(df,aes(x=PC1, y=PC2, shape=sex, color=site,group=sample)) +
+  geom_point(size=2) + geom_path(size=0.02,color="blue") +
+  ggtitle("PCs 1 and 2: Gastrocnemius samples") + 
+  theme(plot.title = element_text(hjust = 0.5))
+ggplot(df,aes(x=PC3, y=PC4, shape=sex, color=site,group=sample)) +
+  geom_point(size=2) + geom_path(size=0.02,color="blue") +
+  ggtitle("PCs 1 and 2: Gastrocnemius samples") + 
+  theme(plot.title = element_text(hjust = 0.5))
+
 ```
 
 ## Look at the sample correlation
 
-```{r, fig.align="center",out.height='50%',out.width='50%'}
+We next compute the Spearman correlation between the samples (with and without filterling lowly expressed genes). We separate the correlations to those between different samples and those between cross-site replicates.
+
+```{r, fig.align="center",out.height='70%',out.width='70%'}
 par(mfrow=c(1,2))
 # Raw FPKMs
-x1 = site2fpkm[[1]][,colnames(gastro_fpkm_processed[[1]])]
-x2 = site2fpkm[[2]][,colnames(gastro_fpkm_processed[[2]])]
+x1 = site2fpkm[[1]][,colnames(Gastrocnemius_fpkm_processed[[1]])]
+x2 = site2fpkm[[2]][,colnames(Gastrocnemius_fpkm_processed[[2]])]
 x1 = x1[,order(sample_id[colnames(x1)])]
 x2 = x2[,order(sample_id[colnames(x2)])]
 print("Do we have the same mapped sample id in the matrices?")
 print(all(sample_id[colnames(x1)] == sample_id[colnames(x2)]))
 corrs = cor(x1,x2,method="spearman")
 l = list(
-  within = diag(corrs),
+  replicates = diag(corrs),
   between = corrs[lower.tri(corrs,diag = F)]
 )
 boxplot(l,col=c("gray","green"),
@@ -328,7 +491,7 @@ boxplot(l,col=c("gray","green"),
 # Processed FPKMs - take the expressed genes
 corrs = cor(x1[shared_genes,],x2[shared_genes,],method="spearman")
 l = list(
-  within = diag(corrs),
+  replicates = diag(corrs),
   between = corrs[lower.tri(corrs,diag = F)]
 )
 boxplot(l,col=c("gray","green"),
@@ -337,6 +500,23 @@ boxplot(l,col=c("gray","green"),
 
 ```
 
+# In progress
+1. Looking at qc scores correlation (assay specific), for example for RNA-seq:
 
+```{r, fig.align="center",out.height='70%',out.width='70%'}
+library(corrplot)
+cols_for_qc_analysis = c("RIN","reads","pct_GC","pct_rRNA","pct_globin",
+                      "pct_umi_dup","median_5_3_bias","pct_trimmed_bases",
+                      "pct_multimapped")
+x = rnaseq_meta[rnaseq_meta$site=="stanford",cols_for_qc_analysis]
+corrplot(cor(x,method="spearman"),tl.cex = 0.8,type = "upper", main="Stanford, selected scores (spearman)",cex.main=0.8)
+x = rnaseq_meta[rnaseq_meta$site=="sinai",cols_for_qc_analysis]
+corrplot(cor(x,method="spearman"),tl.cex = 0.8,type = "upper", main="Sinai, selected scores (spearman)",cex.main=0.8)
+
+```
+
+2. Automatic flow that links PCs to QC scores
+3. Differential abundance analysis using LMMs
+4. Site comparison by differential genes
 
 
