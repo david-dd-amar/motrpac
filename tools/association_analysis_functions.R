@@ -35,7 +35,7 @@ linear_association_analysis<-function(x,y,z=NULL){
 
 #' Go over the column pairs in m and run the function func on each one. 
 #' Store the value from the field f in the function's output in the result
-pairwise_eval<-function(m,func,f,...){
+pairwise_eval_single_mat<-function(m,func,f,...){
   n = ncol(m)
   res = matrix(NA,nrow=n,ncol=n)
   colnames(res) = colnames(m)
@@ -43,12 +43,44 @@ pairwise_eval<-function(m,func,f,...){
   for(i in 1:n){
     for(j in 1:i){
       curr_output = func(m[,i],m[,j],...)
-      res[i,j] = curr_output[f]
+      if(!is.numeric(curr_output[f])){
+        curr_output = curr_output[[f]]
+      }
+      else{
+        curr_output = curr_output[f]
+      }
+      res[i,j] = curr_output
       res[j,i] = res[i,j]
     }
   }
   return(res)
 }
+
+pairwise_eval_two_matrices<-function(m1,m2,func,f,...){
+  n1 = ncol(m1);n2=ncol(m2)
+  res = matrix(NA,nrow=n1,ncol=n2)
+  colnames(res) = colnames(m2)
+  rownames(res) = colnames(m1)
+  for(i in 1:n1){
+    for(j in 1:n2){
+      curr_output = func(m1[,i],m2[,j],...)
+      if(!is.numeric(curr_output[f])){
+        curr_output = curr_output[[f]]
+      }
+      else{
+        curr_output = curr_output[f]
+      }
+      res[i,j] = curr_output
+    }
+  }
+  return(res)
+}
+
+pairwise_eval<-function(m,m1=NULL,func,f,...){
+  if(is.null(m1)){return(pairwise_eval_single_mat(m,func,f,...))}
+  return(pairwise_eval_two_matrices(m,m1,func,f,...))
+}
+
 
 # # test
 # n=100

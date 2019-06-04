@@ -201,7 +201,7 @@ ggplot(df,aes(x=PC4, y=PC3,shape=site, color=tissue)) +
 
 ## Normalized counts
 
-```{r, fig.align="center",out.height='70%',out.width='70%',message=FALSE,warning=FALSE,eval=TRUE}
+```{r, fig.align="center",out.height='70%',out.width='70%',message=FALSE,warning=FALSE,eval=FALSE}
 # Pipeline 2: work with count data
 # Combine the two count matrices
 count_matrix = as.matrix(cbind(site2counts[[1]],site2counts[[2]]))
@@ -253,18 +253,30 @@ ggplot(df,aes(x=PC1, y=PC2,shape=site, color=tissue)) +
 
 Here we take each tissue and analyze its samples. We quantile normalize the data and run PCA. For the top principal components (5) we compute their association with the metadata. Metadata in this context is all non-transcriptomic data, which includes technical and clinical variables.
 
-```{r}
+```{r,fig.align="center",out.height='50%',out.width='50%',message=FALSE,warning=FALSE}
 library(corrplot)
+# load some auxiliary functions for association analysis
+source("/Users/David/Desktop/repos/motrpac/tools/association_analysis_functions.R")
 # RNA-seq meta to correlate with genes/pcs
 assay_cols_for_qc_analysis = c("RIN","reads","pct_GC","pct_rRNA","pct_globin",
                       "pct_umi_dup","median_5_3_bias","pct_trimmed_bases",
                       "pct_multimapped")
 # Animal information to correlate with genes/pcs
-animal_data_cols_for_qc_analysis = c("siteID","weight",
-                                     "Batch","sex","distance","howlongshock")
-
+# FUTURE WORK: add site id and batch
+animal_data_cols_for_qc_analysis = c("weight",
+                                     "sex","distance","howlongshock")
+# Labels for separating the data by site and tissue
 rnaseq_meta_batchs = unique(rnaseq_meta[,c("GET_site","Tissue")])
-dataset2pcs = list()
+
+parse_shocktime<-function(x){
+  if(is.na(x)||nchar(x)==0){return(0)}
+  arr = strsplit(x,split=":")[[1]]
+  return(as.numeric(arr[1])*60 + as.numeric(arr[2]))
+}
+animal_metadata$howlongshock = sapply(animal_metadata$howlongshock,parse_shocktime)
+
+qc_scores_results = c()
+animal_data_results = c()
 for(i in 1:nrow(rnaseq_meta_batchs)){
   curr_site = rnaseq_meta_batchs[i,1]
   curr_tissue = rnaseq_meta_batchs[i,2]
@@ -273,12 +285,19 @@ for(i in 1:nrow(rnaseq_meta_batchs)){
   # For rat data, take samples whose label id starts with "9"
   curr_samples = curr_samples[grepl("^9",curr_samples)]
   curr_data = process_fpkm1(fpkm_all[,curr_samples])
-  curr_data = run_quantile_normalization(curr_data)
+  curr_pids = as.character(rnaseq_meta[curr_samples,"PID"])
+  # curr_data = run_quantile_normalization(curr_data)
   curr_pca = prcomp(t(curr_data))
-  curr_pcax = curr_pca$x[,1:10]
+  curr_pcax = curr_pca$x[,1:5]
+  explained_var = summary(curr_pca)[["importance"]][3,5]
   curr_meta1 = rnaseq_meta[curr_samples,assay_cols_for_qc_analysis]
-  corrs = cor(curr_pcax,curr_meta1)
-  corrplot(corrs)
+  corrs = cor(curr_pcax,curr_meta1,method="spearman")
+  corrsp = pairwise_eval(curr_pcax,curr_meta1,func=cor.test,f="p.value",method="spearman")
+  main = paste(curr_tissue,curr_site,paste("(",format(explained_var,digits = 2),")",sep=""))
+  curr_meta2 = animal_metadata[curr_pids,animal_data_cols_for_qc_analysis]
+  corrs2 = cor(curr_pcax,curr_meta2,method="spearman")
+  corrsp2 = pairwise_eval(curr_pcax,curr_meta2,func=cor.test,f="p.value",method="spearman")
+  corrplot(corrs2,p.mat = corrsp2,sig.level = 0.001,title = main,mar = c(3,3,3,3))
 }
 
 ```
@@ -479,7 +498,6 @@ corrplot(cor(x,method="spearman"),tl.cex = 0.8,type = "upper", main="Sinai, sele
 
 ```
 
-2. Automatic flow that links PCs to QC scores
 3. Differential abundance analysis using LMMs
 4. Site comparison by differential genes
 
