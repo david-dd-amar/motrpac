@@ -43,7 +43,7 @@ print(sum(rnaseq_meta$IsFlagged))
 # This is a merged data frame containing the animal key and
 # registry data from dmaqc, created using:
 dmaqc_metadata_path = 
-  "/Users/David/Desktop/MoTrPAC/data/april_2019/DMAQC_Transfer_Pass_1A.6M_1/3-Data_Sets/"
+  "/Users/David/Desktop/MoTrPAC/data/pass_1a/dmaqc_pheno/"
 dmaqc_files = list.files(dmaqc_metadata_path,full.names = T)
 animal_key_file = dmaqc_files[grepl("Animal.Key",dmaqc_files)]
 animal_regstr_file = dmaqc_files[grepl("Regis",dmaqc_files)]
@@ -65,7 +65,14 @@ print(table(animal_metadata$sex))
 # Analysis of biospecimen data
 specimen_data_path = dmaqc_files[grepl("Specimen.Processing.csv",dmaqc_files)]
 specimen_data = read.csv(specimen_data_path,stringsAsFactors = F)
-rownames(specimen_data) = as.character(specimen_data$labelid)
+# Load the labelid to vialid mapping
+bic_label_ids = read.csv(dmaqc_files[grepl("BIC",dmaqc_files)])
+label2vial = as.character(bic_label_ids$vialLabel)
+names(label2vial) = as.character(bic_label_ids$labelID)
+specimen_data = specimen_data[is.element(specimen_data$labelid,set=names(label2vial)),]
+dim(specimen_data)
+rownames(specimen_data) = label2vial[as.character(specimen_data$labelid)]
+
 # Parse the times and compute the difference between the freeze time and 
 # the collection time
 time_to_freeze1 = as.difftime(specimen_data$t_freeze,units = "mins") -
@@ -107,6 +114,14 @@ for(site in names(site2fpkm_path)){
 # will have repeated samples.
 # specimen_data (rownames are labelid, which is vial_label) - 
 #     bioscpecimen level data like time to freeze
+
+# # Some tests - need to make sure all metadata has the same info
+# length(intersect(as.character(bic_label_ids$vialLabel),rnaseq_meta$vial_label))
+# setdiff(rnaseq_meta$vial_label,as.character(bic_label_ids$vialLabel))
+# # As of June 2019: ignore the biospecimen data and move on with the animal data
+# test_bid = intersect(rnaseq_meta$BID,specimen_data$bid)[1]
+# rnaseq_meta$vial_label[grepl(test_bid,rnaseq_meta$vial_label)]
+# specimen_data$labelid[grepl(test_bid,specimen_data$labelid)]
 ```
 
 # PCA plots (all samples)
@@ -239,62 +254,14 @@ ggplot(df,aes(x=PC1, y=PC2,shape=site, color=tissue)) +
 Here we take each tissue and analyze its samples. We quantile normalize the data and run PCA. For the top principal components (5) we compute their association with the metadata. Metadata in this context is all non-transcriptomic data, which includes technical and clinical variables.
 
 ```{r}
-
+library(corrplot)
+# RNA-seq meta to correlate with genes/pcs
 assay_cols_for_qc_analysis = c("RIN","reads","pct_GC","pct_rRNA","pct_globin",
                       "pct_umi_dup","median_5_3_bias","pct_trimmed_bases",
                       "pct_multimapped")
+# Animal information to correlate with genes/pcs
 animal_data_cols_for_qc_analysis = c("siteID","weight",
                                      "Batch","sex","distance","howlongshock")
-
-break_label_id<-function(x){
-  if(nchar(x)!=11){stop("Input size is not 11 char long")}
-  if(is.na(as.numeric(x))){stop("Input is not a number")}
-  bid = substr(x,1,5)
-  tp = substr(x,6,7)
-  tissue = substr(x,8,9)
-  aliq = substr(x,10,11)
-  return(list(bid=bid,tp=tp,tissue_code=tissue,aliq=aliq))
-}
-
-parse_shocktime <-function(x){
-  if(length(x)==0||nchar(x)==0||is.na(x)||is.null(x)){return(0)}
-  arr = strsplit(x,split = ":")[[1]]
-  num = as.numeric(arr[1])*60 + as.numeric(arr[2])
-  # print(num)
-  return(num)
-}
-
-# helper function to get the metadata (all non-assay data in one place)
-# specimen data is optional (we want it for time-related variables for now)
-get_sample_metadata<-function(labelids,assay_data,animal_data,specimen_data=NULL){
-  labelids = as.character(labelids)
-  labelid2pids = as.character(assay_data$PID)
-  names(labelid2pids) = as.character(assay_data[,1])
-  if(!is.null(specimen_data)){
-      labelid2pids2 = as.character(specimen_data$pid)
-      names(labelid2pids2) = as.character(specimen_data$labelid)
-      labelid2pids = c(labelid2pids,labelid2pids2)
-  }
-  m = cbind(assay_data[labelids,],animal_data[labelid2pids[labelids],])
-  if(!is.null(specimen_data)){m = cbind(m,specimen_data[labelids,])}
-  return(m)
-}
-
-# # A hack - As of May 2019, the vial ids in the RNA-seq metadata
-# # do not match the label ids from DMAQC (poweder vs. non-powder tissue). 
-# # We therefore label the data by concatenating the bid,
-# # tp, and the tissue name
-# labels1 = paste(rnaseq_meta$BID,tolower(rnaseq_meta$Tissue),sep=";")
-# names(labels1) = rnaseq_meta$vial_label
-# labels2 = paste(specimen_data$bid,tolower(specimen_data$sampletypedescription),sep=";")
-# names(labels2) = specimen_data$labelid
-# # check samples with no duplication at the label level
-# shared_samples = intersect(labels1,labels2)
-# rownames(specimen_data) = labels2
-# rownames(rnaseq_meta) = labels1
-
-labelids = rnaseq_meta$vial_label
-test = get_sample_metadata(labelids,rnaseq_meta,animal_metadata)
 
 rnaseq_meta_batchs = unique(rnaseq_meta[,c("GET_site","Tissue")])
 dataset2pcs = list()
@@ -309,11 +276,8 @@ for(i in 1:nrow(rnaseq_meta_batchs)){
   curr_data = run_quantile_normalization(curr_data)
   curr_pca = prcomp(t(curr_data))
   curr_pcax = curr_pca$x[,1:10]
-  curr_meta = get_sample_metadata(curr_samples,rnaseq_meta,animal_metadata)
-  curr_meta = curr_meta[,c(assay_cols_for_qc_analysis,
-                           animal_data_cols_for_qc_analysis)]
-  curr_meta$howlongshock = sapply(curr_meta$howlongshock,parse_shocktime)
-  corrs = cor(curr_pcax,curr_meta)
+  curr_meta1 = rnaseq_meta[curr_samples,assay_cols_for_qc_analysis]
+  corrs = cor(curr_pcax,curr_meta1)
   corrplot(corrs)
 }
 
