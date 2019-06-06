@@ -62,6 +62,24 @@ print(table(animal_metadata$ANIRandGroup))
 print("Animal metadata, sex table:")
 print(table(animal_metadata$sex))
 
+# Parse specific columns in the animal metadata data frame
+parse_shocktime<-function(x){
+  if(is.na(x)||nchar(x)==0){return(0)}
+  arr = strsplit(x,split=":")[[1]]
+  return(as.numeric(arr[1])*60 + as.numeric(arr[2]))
+}
+parse_timepoint<-function(x){
+  arrs = strsplit(x,split=" ")
+  tps = sapply(arrs,function(x)x[3])
+  tps = as.numeric(tps)
+  tps[is.na(tps)]=-1
+  return(tps)
+}
+animal_metadata$howlongshock = sapply(animal_metadata$howlongshock,parse_shocktime)
+animal_metadata$timepoint = parse_timepoint(animal_metadata$ANIRandGroup)
+animal_metadata$controlgroup = as.numeric(
+  grepl("control",animal_metadata$ANIRandGroup,ignore.case = T))
+
 # Analysis of biospecimen data
 specimen_data_path = dmaqc_files[grepl("Specimen.Processing.csv",dmaqc_files)]
 specimen_data = read.csv(specimen_data_path,stringsAsFactors = F)
@@ -86,8 +104,8 @@ time_to_freeze = time_to_freeze1
 table(is.na(time_to_freeze1),is.na(time_to_freeze2))
 time_to_freeze[is.na(time_to_freeze1)] = time_to_freeze2[is.na(time_to_freeze1)]
 specimen_data$time_to_freeze = as.numeric(time_to_freeze)
-hist(specimen_data$time_to_freeze,breaks=100)
-print("Histogram of freeze times, computed from the DMAQC data")
+# hist(specimen_data$time_to_freeze,breaks=100)
+# print("Histogram of freeze times, computed from the DMAQC data")
 
 # Read the gene expression data in
 site2fpkm = list()
@@ -105,15 +123,6 @@ for(site in names(site2fpkm_path)){
   currcounts = currcounts[,-1]
   site2counts[[site]] = currcounts
 }
-
-# At this point we have all count and FPKM data as well as three shources
-# of non-transcriptomic data:
-# rnaseq_meta (rownames are vial_label, which is labelid) - assay qc scores
-# animal_metadata (rownames are pids) - animal/subject level data like sex, weight, etc.
-# Note that animal and sample here are the same. The human data will be different as we
-# will have repeated samples.
-# specimen_data (rownames are labelid, which is vial_label) - 
-#     bioscpecimen level data like time to freeze
 
 # # Some tests - need to make sure all metadata has the same info
 # length(intersect(as.character(bic_label_ids$vialLabel),rnaseq_meta$vial_label))
@@ -251,9 +260,11 @@ ggplot(df,aes(x=PC1, y=PC2,shape=site, color=tissue)) +
 
 # Within tissue analysis
 
-Here we take each tissue and analyze its samples. We quantile normalize the data and run PCA. For the top principal components (5) we compute their association with the metadata. Metadata in this context is all non-transcriptomic data, which includes technical and clinical variables.
+## Correlation between PCs and non-RNA variables
 
-```{r,fig.align="center",out.height='50%',out.width='50%',message=FALSE,warning=FALSE}
+Here we take each tissue and analyze its samples. We quantile normalize the data and run PCA. For the top principal components (5) we compute their association with the RNA-seq qc scores or information collected about the rats. For the latter we use sex, weight, achieved distances, and shock time during the experiment. Note that all of these scores are highly correlated. Below we perform a simple Spearman correlation-based analysis. We can later recompute the associations after proper adjustments.
+
+```{r,fig.align="center",out.height='40%',out.width='40%',message=FALSE,warning=FALSE}
 library(corrplot)
 # load some auxiliary functions for association analysis
 source("/Users/David/Desktop/repos/motrpac/tools/association_analysis_functions.R")
@@ -263,20 +274,14 @@ assay_cols_for_qc_analysis = c("RIN","reads","pct_GC","pct_rRNA","pct_globin",
                       "pct_multimapped")
 # Animal information to correlate with genes/pcs
 # FUTURE WORK: add site id and batch
-animal_data_cols_for_qc_analysis = c("weight",
-                                     "sex","distance","howlongshock")
+animal_data_cols_for_qc_analysis = c(
+  "weight","sex","distance","howlongshock","timepoint")
 # Labels for separating the data by site and tissue
 rnaseq_meta_batchs = unique(rnaseq_meta[,c("GET_site","Tissue")])
 
-parse_shocktime<-function(x){
-  if(is.na(x)||nchar(x)==0){return(0)}
-  arr = strsplit(x,split=":")[[1]]
-  return(as.numeric(arr[1])*60 + as.numeric(arr[2]))
-}
-animal_metadata$howlongshock = sapply(animal_metadata$howlongshock,parse_shocktime)
-
 qc_scores_results = c()
 animal_data_results = c()
+p_thr = 0.001
 for(i in 1:nrow(rnaseq_meta_batchs)){
   curr_site = rnaseq_meta_batchs[i,1]
   curr_tissue = rnaseq_meta_batchs[i,2]
@@ -286,28 +291,204 @@ for(i in 1:nrow(rnaseq_meta_batchs)){
   curr_samples = curr_samples[grepl("^9",curr_samples)]
   curr_data = process_fpkm1(fpkm_all[,curr_samples])
   curr_pids = as.character(rnaseq_meta[curr_samples,"PID"])
-  # curr_data = run_quantile_normalization(curr_data)
+  curr_data = run_quantile_normalization(curr_data)
   curr_pca = prcomp(t(curr_data))
   curr_pcax = curr_pca$x[,1:5]
   explained_var = summary(curr_pca)[["importance"]][3,5]
   curr_meta1 = rnaseq_meta[curr_samples,assay_cols_for_qc_analysis]
   corrs = cor(curr_pcax,curr_meta1,method="spearman")
   corrsp = pairwise_eval(curr_pcax,curr_meta1,func=cor.test,f="p.value",method="spearman")
-  main = paste(curr_tissue,curr_site,paste("(",format(explained_var,digits = 2),")",sep=""))
+  for(i in 1:nrow(corrsp)){
+    for(j in 1:ncol(corrsp)){
+      if(corrsp[i,j]>p_thr){next}
+      qc_scores_results = rbind(qc_scores_results,
+            c(curr_tissue,curr_site,
+              rownames(corrsp)[i],colnames(corrsp)[j],corrs[i,j],corrsp[i,j])
+            )
+    }
+  }
+  colnames(qc_scores_results) = c("Tissue","CAS_site","PC",
+                                  "qc_metric","rho(spearman)","p-value")
+  
   curr_meta2 = animal_metadata[curr_pids,animal_data_cols_for_qc_analysis]
-  corrs2 = cor(curr_pcax,curr_meta2,method="spearman")
-  corrsp2 = pairwise_eval(curr_pcax,curr_meta2,func=cor.test,f="p.value",method="spearman")
-  corrplot(corrs2,p.mat = corrsp2,sig.level = 0.001,title = main,mar = c(3,3,3,3))
+  rownames(curr_meta2) = curr_samples
+  # Animal analysis: for correlations consider rats with distance >0
+  training_rats = curr_meta2$distance > 0
+  training_rats_x = curr_pcax[training_rats,]
+  training_rats_meta = curr_meta2[training_rats,]
+  corrs2 = cor(training_rats_x,training_rats_meta,method="spearman")
+  corrsp2 = pairwise_eval(training_rats_x,
+                          training_rats_meta,func=cor.test,f="p.value",method="spearman")
+  for(i in 1:nrow(corrsp2)){
+    for(j in 1:ncol(corrsp2)){
+      if(corrsp2[i,j]>p_thr){next}
+      animal_data_results = rbind(animal_data_results,
+            c(curr_tissue,curr_site,
+              rownames(corrsp2)[i],colnames(corrsp2)[j],corrs2[i,j],corrsp2[i,j])
+            )
+    }
+  }
+  colnames(animal_data_results) = c("Tissue","CAS_site","PC",
+                                  "variable","rho(spearman)","p-value")
+  
+  # In case we want a linear test for association
+  # corrsp2 = pairwise_eval(as.data.frame(curr_pcax),
+  #   curr_meta2,func=linear_association_analysis,f="pval")
+  
+  # Add some plots for selected tissues
+  if(grepl("white adipose",curr_tissue) || 
+     grepl("heart|gastro",curr_tissue,ignore.case = T)){
+      main = paste(curr_tissue,curr_site,
+                   paste("(",format(explained_var,digits = 2),")",sep=""))
+      corrplot(corrs,p.mat = corrsp,
+               sig.level = 0.001,title = main,mar = c(3,3,3,3))
+      corrplot(corrs2,p.mat = corrsp2,
+               sig.level = 0.001,title = main,mar = c(3,3,3,3))
+  }
+}
+
+write.table(qc_scores_results,sep="\t",quote=F,row.names = F)
+write.table(animal_data_results,sep="\t",quote=F,row.names = F)
+```
+
+## Differential abundance analysis using FPKM data
+
+In this analysis we use simple linear regression to model the log fold changes. Here we perfom a simple analysis excluding the control groups (sampled in two time points only). Assume that we are analyzing a specific gene with a gene expression pattern $x$ in a given tissue. We use the following covatiates in the model: (1) $y_{sex}$ - sex, (2) $lt_i$ - time, linear trend, (3) $qt_i$ - time, quadratic trend, (4) $y_d$ - distance acheived by the rat during the acute test, and (5) $Z$ - technical variables. That is: 
+$$x_i = \beta_0 + \beta_{sex}*y_{sex}+\beta_l*lt_i + \beta_q*qt_i + \beta_d*y_d + \bf{\beta_z^TZ_{i,*}}$$.
+
+Here is the code for this analysis:
+
+```{r,fig.align="center",out.height='50%',out.width='50%',message=FALSE,warning=FALSE,eval=FALSE}
+# store all betas and their p-values
+source("/Users/David/Desktop/repos/motrpac/tools/association_analysis_functions.R")
+Z_cols = c("pct_multimapped","pct_umi_dup",
+           "median_5_3_bias","pct_rRNA","Lib_batch_ID")
+clinical_cols = c("sex","timepoint","controlgroup","distance")
+tissue2diff_analysis_results = list()
+rnaseq_meta_batchs = unique(rnaseq_meta[,c("GET_site","Tissue")])
+for(i in 1:nrow(rnaseq_meta_batchs)){
+  curr_site = rnaseq_meta_batchs[i,1]
+  curr_tissue = rnaseq_meta_batchs[i,2]
+  curr_samples = as.character(rnaseq_meta$vial_label[rnaseq_meta$GET_site==curr_site &
+                                          rnaseq_meta$Tissue==curr_tissue])
+  # For rat data, take samples whose label id starts with "9"
+  curr_samples = curr_samples[grepl("^9",curr_samples)]
+  curr_data = process_fpkm1(fpkm_all[,curr_samples])
+  curr_data = run_quantile_normalization(curr_data)
+  curr_data = as.matrix(curr_data)
+  curr_pids = as.character(rnaseq_meta[curr_samples,"PID"])
+  curr_meta1 = rnaseq_meta[curr_samples,Z_cols]
+  curr_meta2 = animal_metadata[curr_pids,clinical_cols]
+  rownames(curr_meta2) = rownames(curr_meta1)
+  tp_poly = poly(curr_meta2$timepoint,degree = 2)
+  colnames(tp_poly) = c("time.linear","time.quad")
+  X = cbind(curr_meta2,curr_meta1,tp_poly)
+  form = y~time.linear + time.quad +
+    sex + pct_multimapped + distance +
+    pct_umi_dup + median_5_3_bias + pct_rRNA
+  
+  # to exclude the controls before the analysis:
+  non_control_inds = curr_meta2$controlgroup != 1
+  # hist(X$distance[non_control_inds])
+  lm_results = t(apply(curr_data[,non_control_inds],1,
+                       lm_wrapper_for_diff_abundance_analysis,
+                       x=X[non_control_inds,],form=form))
+  
+  curr_name = paste(curr_tissue,curr_site,sep=",")
+  # Save the results and the analysis input into a single object
+  tissue2diff_analysis_results[[curr_name]] = list(
+    diff_res = lm_results,
+    ge_data = curr_data,
+    X = X,
+    form=form,
+    non_control_inds = non_control_inds
+  )
+  save(tissue2diff_analysis_results,
+       file=paste(getwd(),"tissue2diff_analysis_results.RData",sep="/"))
 }
 
 ```
 
+We next inspect the results of the analysis. At a first step, we inspect the p-value distributions of the time-associated differential analysis.
+
+```{r,fig.align="center",out.height='40%',out.width='40%',message=FALSE,warning=FALSE}
+# load precomputed results
+load(paste(getwd(),"tissue2diff_analysis_results.RData",sep="/"))
+print("number of analyzed genes in each tissue:")
+print(sapply(tissue2diff_analysis_results,function(x)nrow(x[[1]])))
+
+par(mfrow=c(1,2))
+for(curr_name in names(tissue2diff_analysis_results)){
+  lm_results = tissue2diff_analysis_results[[curr_name]][[1]]
+  hist(lm_results[,"pval;distance"],
+       main=paste(curr_name,"distance"),xlab="P-value",
+       cex.main = 1)
+  hist(lm_results[,"pval;time.linear"],
+       main=paste(curr_name,"linear trend"),xlab="P-value",
+       cex.main=1)
+  # # get the top linear time response gene
+  # ind = which(lm_results[,"pval;time.quad"]==
+  #               min(lm_results[,"pval;time.quad"]))
+  # boxplot(curr_data[ind,non_control_inds]~
+  #           X$timepoint[non_control_inds]+
+  #                         X$sex[non_control_inds],las=2)
+  # boxplot(curr_data[ind,!non_control_inds]~
+  #           X$timepoint[!non_control_inds]+
+  #                         X$sex[!non_control_inds],las=2)
+}
+
+```
+
+
 # Site comparison using the Gastrocnemius samples
+
+## Simple comparison of the differential analysis results
+
+As a first, simple analysis we load the differential analysis results and compare Stanford and Sinai.
+
+```{r, fig.align="center",out.height='50%',out.width='50%'}
+# Load the data, get the shared genes
+load(paste(getwd(),"tissue2diff_analysis_results.RData",sep="/"))
+res_stanford = tissue2diff_analysis_results[["gastrocnemius,Stanford"]][[1]]
+res_mssm = tissue2diff_analysis_results[["gastrocnemius,MSSM"]][[1]]
+shared_genes = intersect(rownames(res_stanford),rownames(res_mssm))
+print("Loaded the differential analysis results. The number of shared genes in the Stanford and Sinai results is:")
+print(length(shared_genes))
+```
+Compare all statistics of the differential analysis. Here we expect a low correlation between the statistics of technical variables and higher correlation for clinical variables (e.g., time).
+```{r, fig.align="center",out.height='50%',out.width='50%'}
+res_stanford = res_stanford[shared_genes,]
+res_mssm = res_mssm[shared_genes,]
+stanford_vs_sinai_diff_comparison_rho = diag(cor(res_mssm,res_stanford,method="spearman"))
+p<-ggplot(data=data.frame(
+          rho=stanford_vs_sinai_diff_comparison_rho,
+          statistic = names(stanford_vs_sinai_diff_comparison_rho)), 
+          aes(x=statistic,y=rho)) + geom_bar(stat = "identity")
+p + coord_flip()
+```
+
+Finally, compare the genes by looking at their p-values.
+
+```{r, fig.align="center",out.height='50%',out.width='70%'}
+res_stanford = res_stanford[shared_genes,]
+res_mssm = res_mssm[shared_genes,]
+par(mfrow=c(1,2))
+plot(x = -log(res_stanford[,"pval;time.linear"],10),
+     y = -log(res_mssm[,"pval;time.linear"],10),
+     xlab="Stanford",ylab="Sinai",pch=20,cex=0.5,
+     main="Linear time trend")
+abline(0,1,lty=2,lwd=3)
+plot(x = -log(res_stanford[,"pval;time.quad"],10),
+     y = -log(res_mssm[,"pval;time.quad"],10),
+     xlab="Stanford",ylab="Sinai",pch=20,cex=0.5,
+     main="Quad time trend")
+abline(0,1,lty=2,lwd=3)
+```
 
 ## Load the data
 
 ```{r, fig.align="center",out.height='70%',out.width='70%'}
-# tissue vector - used below for getting the subset of 
+# tissue vector - used below for getting the subset of
 # Gastrocnemius samples
 tissue = rnaseq_meta$Tissue
 names(tissue) = rownames(rnaseq_meta)
@@ -330,8 +511,8 @@ Gastrocnemius_fpkm_mat = cbind(Gastrocnemius_fpkm_processed[[1]][shared_genes,],
 
 # Analysis of the metadata
 Gastrocnemius_metadata = rnaseq_meta[colnames(Gastrocnemius_fpkm_mat),]
-# We by default keep the vial sample id, which is different even if 
-# the biospecimen id is the same. 
+# We by default keep the vial sample id, which is different even if
+# the biospecimen id is the same.
 # This vector keeps the BID+PIDs
 sample_id = paste(Gastrocnemius_metadata$BID,Gastrocnemius_metadata$PID,sep=";")
 names(sample_id) = rownames(Gastrocnemius_metadata)
@@ -426,7 +607,7 @@ df = df[order(df$sample),]
 # Add lines between matching samples (i.e., same sample, different site)
 ggplot(df,aes(x=PC1, y=PC2, shape=sex, color=site,group=sample)) +
   geom_point(size=2) + geom_path(size=0.02,color="blue") +
-  ggtitle("PCs 1 and 2: Gastrocnemius samples") + 
+  ggtitle("PCs 1 and 2: Gastrocnemius samples") +
   theme(plot.title = element_text(hjust = 0.5))
 # Retry - quantile normalization before PCA (slightly cleaner)
 Gastrocnemius_fpkm_mat_q = run_quantile_normalization(Gastrocnemius_fpkm_mat)
@@ -440,11 +621,11 @@ df = df[order(df$sample),]
 # Add lines between matching samples (i.e., same sample, different site)
 ggplot(df,aes(x=PC1, y=PC2, shape=sex, color=site,group=sample)) +
   geom_point(size=2) + geom_path(size=0.02,color="blue") +
-  ggtitle("PCs 1 and 2: Gastrocnemius samples") + 
+  ggtitle("PCs 1 and 2: Gastrocnemius samples") +
   theme(plot.title = element_text(hjust = 0.5))
 ggplot(df,aes(x=PC3, y=PC4, shape=sex, color=site,group=sample)) +
   geom_point(size=2) + geom_path(size=0.02,color="blue") +
-  ggtitle("PCs 1 and 2: Gastrocnemius samples") + 
+  ggtitle("PCs 1 and 2: Gastrocnemius samples") +
   theme(plot.title = element_text(hjust = 0.5))
 
 ```
@@ -484,21 +665,18 @@ boxplot(l,col=c("gray","green"),
 ```
 
 # In progress
-1. Looking at qc scores correlation (assay specific), for example for RNA-seq:
+Looking at qc scores correlation (assay specific), for example for RNA-seq:
 
-```{r, fig.align="center",out.height='70%',out.width='70%'}
+```{r, fig.align="center",out.height='40%',out.width='40%'}
 library(corrplot)
 cols_for_qc_analysis = c("RIN","reads","pct_GC","pct_rRNA","pct_globin",
                       "pct_umi_dup","median_5_3_bias","pct_trimmed_bases",
                       "pct_multimapped")
 x = rnaseq_meta[rnaseq_meta$site=="stanford",cols_for_qc_analysis]
-corrplot(cor(x,method="spearman"),tl.cex = 0.8,type = "upper", main="Stanford, selected scores (spearman)",cex.main=0.8)
+corrplot(cor(x,method="spearman"),tl.cex = 0.8,type = "upper", main="Stanford, selected scores (spearman)",cex.main=0.8,mar=c(3,3,3,3))
 x = rnaseq_meta[rnaseq_meta$site=="sinai",cols_for_qc_analysis]
-corrplot(cor(x,method="spearman"),tl.cex = 0.8,type = "upper", main="Sinai, selected scores (spearman)",cex.main=0.8)
+corrplot(cor(x,method="spearman"),tl.cex = 0.8,type = "upper", main="Sinai, selected scores (spearman)",cex.main=0.8,mar=c(3,3,3,3))
 
-```
 
-3. Differential abundance analysis using LMMs
-4. Site comparison by differential genes
 
 

@@ -11,8 +11,10 @@ linear_association_analysis<-function(x,y,z=NULL){
     lm1 = lm(y~.,data=df1)
     y = lm1$residuals
   }
-  inds = intersect(names(x),names(y))
-  x = x[inds];y=y[inds]
+  if(!is.null(names(x))&&!is.null(names(y))){
+    inds = intersect(names(x),names(y))
+    x = x[inds];y=y[inds]
+  }
   inds = !is.na(x) & !is.na(y)
   x = x[inds];y=y[inds]
   xcopy = as.numeric(as.character(x))
@@ -81,6 +83,20 @@ pairwise_eval<-function(m,m1=NULL,func,f,...){
   return(pairwise_eval_two_matrices(m,m1,func,f,...))
 }
 
+lm_wrapper_for_diff_abundance_analysis<-function(y,x,form = NULL){
+  df = data.frame(y=y,x)
+  if(is.null(form)){
+    form = y~.
+  }
+  lm_res = lm(form,data=df)
+  lm_sum = summary(lm_res)
+  coeffs = lm_sum$coefficients
+  x1 = coeffs[,1]
+  x2 = coeffs[,4]
+  names(x1) = paste("est",rownames(coeffs),sep=";")
+  names(x2) = paste("pval",rownames(coeffs),sep=";")
+  return(c(x1,x2))
+}
 
 # # test
 # n=100
