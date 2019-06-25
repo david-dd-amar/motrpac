@@ -223,6 +223,11 @@ tmp_ac_data = csv_data[[which(grepl("Animal.Registration",names(csv_data)))]]
 colnames(tmp_ac_data) = paste("Animal.Registration",colnames(tmp_ac_data),sep=";")
 colnames(tmp_ac_data)[grepl(";pid$",colnames(tmp_ac_data))]="pid"
 merged_animal_data = merge_avoid_col_dup(merged_animal_data,tmp_ac_data,by="pid")
+tmp_ac_data = csv_data[[which(grepl("Specimen.Collection",names(csv_data)))]]
+colnames(tmp_ac_data) = paste("Animal.Specimen.Collection",colnames(tmp_ac_data),sep=";")
+colnames(tmp_ac_data)[grepl(";pid$",colnames(tmp_ac_data))]="pid"
+merged_animal_data = merge_avoid_col_dup(merged_animal_data,tmp_ac_data,by="pid")
+
 
 # Add the biospecimen data and create a large data frame
 merged_dmaqc_data = merge(merged_animal_data,spec_data,by="pid")
@@ -234,11 +239,23 @@ print(dim(merged_dmaqc_data))
 mapping_files = sort(all_csvs[grepl("BICLabelData",all_csvs)],decreasing = T) 
 mapping_info = csv_data[[mapping_files[1]]]
 colnames(mapping_info) = tolower(colnames(mapping_info))
+# Not all samples in the specimen data are necessarily covered in the mapping
+# file. The mapping file contains info only about samples that were shipped
+# to CAS. As can be seen here:
 table(is.element(spec_data$labelid,set=mapping_info$labelid))
-label2vial = as.character(mapping_info$labelid)
-names(label2vial) = as.character(mapping_info$vialLabel)
-merged_dmaqc_data$vialid = label2vial[as.character(merged_dmaqc_data$labelid)]
-rownames(merged_dmaqc_data) = merged_dmaqc_data$vialid
+# We therefore need to extract the intersection:
+shared_labelids = intersect(merged_dmaqc_data$labelid,mapping_info$labelid)
+merged_dmaqc_data = merged_dmaqc_data[
+  is.element(merged_dmaqc_data$labelid,set = shared_labelids),]
+mapping_info = mapping_info[
+  is.element(mapping_info$labelid,set = shared_labelids),]
+print("Merged animal and biospecimen data tables, new dim is:")
+print(dim(merged_dmaqc_data))
+# We also have a many to one mapping from vial ids to labels, we 
+# merge the tables to avoid information loss
+merged_dmaqc_data = merge(merged_dmaqc_data,mapping_info,by="labelid")
+print("Merged animal and biospecimen data tables, after adding vialids, new dim is:")
+print(dim(merged_dmaqc_data))
 
 ```
 
@@ -246,20 +263,41 @@ rownames(merged_dmaqc_data) = merged_dmaqc_data$vialid
 
 ## Compare to the DMAQC computed scores
 
-```{r, fig.align="center",out.height='50%',out.width='50%'}
+Fields to be computed:
+Weight gain before acute test: (Animal_Acute_Test.weight – Animal_Registration.weight)
+Lactate changes due to acute exercise: (Aminal_Acute_Test.endblood - Aminal_Acute_Test.beginblood)
+EDTA sample collection time: (Animal_Specimen_Collection.t_edtafill - Aminal_Acute_Test.t_complete)
+Time of death after acute test: (Animal_Specimen_Collection.t_death - Aminal_Acute_Test.t_complete)
+Sample frozen time after acute test: (Animal_Sample_Processing.t_freeze - Aminal_Acute_Test.t_complete)
+
+```{r, fig.align="center",out.height='90%',out.width='90%'}
 calc_data_file = all_csvs[grepl("Calculated.V",all_csvs)]
 calc_data = read.csv(calc_data_file)
 rownames(calc_data) = calc_data$labelid
 
-# compare our computed freeze time and the given one above
-inds = intersect(rownames(spec_data),rownames(calc_data))
-for(tissue in unique(spec_data$sampletypedescription)){
-  currinds = inds[spec_data[inds,"sampletypedescription"]==tissue]
-  x1 = spec_data[currinds,"time_to_freeze"]
-  x2 = calc_data[currinds,"frozetime_after_acute"] 
-  x2 = x2 - calc_data[currinds,"deathtime_after_acute"]
-  if(all(is.na(x2))||all(is.na(x1))){next}
-  # plot(x1*60,x2,main=tissue);abline(0,1)
+cols_for_analysis = c("labelid","Acute.test;weight","Animal.Registration;weight",
+                      "Acute.test;endblood","Acute.test;beginblood",
+                      "Animal.Specimen.Collection;t_edtafill","Acute.test;t_complete",
+                      "Animal.Specimen.Collection;t_death","Acute.test;t_complete",
+                      "t_freeze","Acute.test;t_complete")
+table(is.element(cols_for_analysis,set=colnames(merged_dmaqc_data))) # sanity
+
+par(mfrow=c(2,3))
+for(j in seq(2,length(cols_for_analysis),by=2)){
+  bic_version = unique(merged_dmaqc_data[,cols_for_analysis[c(1,j,j+1)]])
+  rownames(bic_version) = bic_version[,1]
+  dmaqc_version = calc_data[rownames(bic_version),c(3,3+j/2)]
+  if(mode(bic_version[,2])=="character"){
+    bic_version_score = as.difftime(bic_version[,2])-as.difftime(bic_version[,3])
+    bic_version_score = as.numeric(bic_version_score)*60*60
+  }
+  else{
+    bic_version_score = bic_version[,2]-bic_version[,3]
+  }
+  plot(bic_version_score,dmaqc_version[,2],pch=20,cex=1.2,col="blue",
+       xlab="BICs computation",ylab="DMAQC computation",
+       main = colnames(dmaqc_version)[2])
+  abline(0,1,lty=2)
 }
 
 ```

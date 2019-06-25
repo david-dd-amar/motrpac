@@ -523,14 +523,113 @@ generate a single metadata table that we can share with other sites.
 \KeywordTok{colnames}\NormalTok{(tmp_ac_data) =}\StringTok{ }\KeywordTok{paste}\NormalTok{(}\StringTok{"Animal.Registration"}\NormalTok{,}\KeywordTok{colnames}\NormalTok{(tmp_ac_data),}\DataTypeTok{sep=}\StringTok{";"}\NormalTok{)}
 \KeywordTok{colnames}\NormalTok{(tmp_ac_data)[}\KeywordTok{grepl}\NormalTok{(}\StringTok{";pid$"}\NormalTok{,}\KeywordTok{colnames}\NormalTok{(tmp_ac_data))]=}\StringTok{"pid"}
 \NormalTok{merged_animal_data =}\StringTok{ }\KeywordTok{merge_avoid_col_dup}\NormalTok{(merged_animal_data,tmp_ac_data,}\DataTypeTok{by=}\StringTok{"pid"}\NormalTok{)}
+\NormalTok{tmp_ac_data =}\StringTok{ }\NormalTok{csv_data[[}\KeywordTok{which}\NormalTok{(}\KeywordTok{grepl}\NormalTok{(}\StringTok{"Specimen.Collection"}\NormalTok{,}\KeywordTok{names}\NormalTok{(csv_data)))]]}
+\KeywordTok{colnames}\NormalTok{(tmp_ac_data) =}\StringTok{ }\KeywordTok{paste}\NormalTok{(}\StringTok{"Animal.Specimen.Collection"}\NormalTok{,}\KeywordTok{colnames}\NormalTok{(tmp_ac_data),}\DataTypeTok{sep=}\StringTok{";"}\NormalTok{)}
+\KeywordTok{colnames}\NormalTok{(tmp_ac_data)[}\KeywordTok{grepl}\NormalTok{(}\StringTok{";pid$"}\NormalTok{,}\KeywordTok{colnames}\NormalTok{(tmp_ac_data))]=}\StringTok{"pid"}
+\NormalTok{merged_animal_data =}\StringTok{ }\KeywordTok{merge_avoid_col_dup}\NormalTok{(merged_animal_data,tmp_ac_data,}\DataTypeTok{by=}\StringTok{"pid"}\NormalTok{)}
+
 
 \CommentTok{# Add the biospecimen data and create a large data frame}
 \NormalTok{merged_dmaqc_data =}\StringTok{ }\KeywordTok{merge}\NormalTok{(merged_animal_data,spec_data,}\DataTypeTok{by=}\StringTok{"pid"}\NormalTok{)}
+\KeywordTok{print}\NormalTok{(}\StringTok{"Merged animal and biospecimen data tables, dim is:"}\NormalTok{)}
 \end{Highlighting}
 \end{Shaded}
 
+\begin{verbatim}
+## [1] "Merged animal and biospecimen data tables, dim is:"
+\end{verbatim}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\KeywordTok{print}\NormalTok{(}\KeywordTok{dim}\NormalTok{(merged_dmaqc_data))}
+\end{Highlighting}
+\end{Shaded}
+
+\begin{verbatim}
+## [1] 2699  111
+\end{verbatim}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\CommentTok{# Now map DMAQC's label ids to vialids}
+\CommentTok{# Sort to make the most up to date file the first in the order}
+\NormalTok{mapping_files =}\StringTok{ }\KeywordTok{sort}\NormalTok{(all_csvs[}\KeywordTok{grepl}\NormalTok{(}\StringTok{"BICLabelData"}\NormalTok{,all_csvs)],}\DataTypeTok{decreasing =}\NormalTok{ T) }
+\NormalTok{mapping_info =}\StringTok{ }\NormalTok{csv_data[[mapping_files[}\DecValTok{1}\NormalTok{]]]}
+\KeywordTok{colnames}\NormalTok{(mapping_info) =}\StringTok{ }\KeywordTok{tolower}\NormalTok{(}\KeywordTok{colnames}\NormalTok{(mapping_info))}
+\CommentTok{# Not all samples in the specimen data are necessarily covered in the mapping}
+\CommentTok{# file. The mapping file contains info only about samples that were shipped}
+\CommentTok{# to CAS. As can be seen here:}
+\KeywordTok{table}\NormalTok{(}\KeywordTok{is.element}\NormalTok{(spec_data}\OperatorTok{$}\NormalTok{labelid,}\DataTypeTok{set=}\NormalTok{mapping_info}\OperatorTok{$}\NormalTok{labelid))}
+\end{Highlighting}
+\end{Shaded}
+
+\begin{verbatim}
+## 
+## FALSE  TRUE 
+##  1061  1638
+\end{verbatim}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\CommentTok{# We therefore need to extract the intersection:}
+\NormalTok{shared_labelids =}\StringTok{ }\KeywordTok{intersect}\NormalTok{(merged_dmaqc_data}\OperatorTok{$}\NormalTok{labelid,mapping_info}\OperatorTok{$}\NormalTok{labelid)}
+\NormalTok{merged_dmaqc_data =}\StringTok{ }\NormalTok{merged_dmaqc_data[}
+  \KeywordTok{is.element}\NormalTok{(merged_dmaqc_data}\OperatorTok{$}\NormalTok{labelid,}\DataTypeTok{set =}\NormalTok{ shared_labelids),]}
+\NormalTok{mapping_info =}\StringTok{ }\NormalTok{mapping_info[}
+  \KeywordTok{is.element}\NormalTok{(mapping_info}\OperatorTok{$}\NormalTok{labelid,}\DataTypeTok{set =}\NormalTok{ shared_labelids),]}
+\KeywordTok{print}\NormalTok{(}\StringTok{"Merged animal and biospecimen data tables, new dim is:"}\NormalTok{)}
+\end{Highlighting}
+\end{Shaded}
+
+\begin{verbatim}
+## [1] "Merged animal and biospecimen data tables, new dim is:"
+\end{verbatim}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\KeywordTok{print}\NormalTok{(}\KeywordTok{dim}\NormalTok{(merged_dmaqc_data))}
+\end{Highlighting}
+\end{Shaded}
+
+\begin{verbatim}
+## [1] 1638  111
+\end{verbatim}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\CommentTok{# We also have a many to one mapping from vial ids to labels, we }
+\CommentTok{# merge the tables to avoid information loss}
+\NormalTok{merged_dmaqc_data =}\StringTok{ }\KeywordTok{merge}\NormalTok{(merged_dmaqc_data,mapping_info,}\DataTypeTok{by=}\StringTok{"labelid"}\NormalTok{)}
+\KeywordTok{print}\NormalTok{(}\StringTok{"Merged animal and biospecimen data tables, after adding vialids, new dim is:"}\NormalTok{)}
+\end{Highlighting}
+\end{Shaded}
+
+\begin{verbatim}
+## [1] "Merged animal and biospecimen data tables, after adding vialids, new dim is:"
+\end{verbatim}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\KeywordTok{print}\NormalTok{(}\KeywordTok{dim}\NormalTok{(merged_dmaqc_data))}
+\end{Highlighting}
+\end{Shaded}
+
+\begin{verbatim}
+## [1] 8616  115
+\end{verbatim}
+
 \subsection{Compare to the DMAQC computed
 scores}\label{compare-to-the-dmaqc-computed-scores}
+
+Fields to be computed: Weight gain before acute test:
+(Animal\_Acute\_Test.weight -- Animal\_Registration.weight) Lactate
+changes due to acute exercise: (Aminal\_Acute\_Test.endblood -
+Aminal\_Acute\_Test.beginblood) EDTA sample collection time:
+(Animal\_Specimen\_Collection.t\_edtafill -
+Aminal\_Acute\_Test.t\_complete) Time of death after acute test:
+(Animal\_Specimen\_Collection.t\_death -
+Aminal\_Acute\_Test.t\_complete) Sample frozen time after acute test:
+(Animal\_Sample\_Processing.t\_freeze - Aminal\_Acute\_Test.t\_complete)
 
 \begin{Shaded}
 \begin{Highlighting}[]
@@ -538,18 +637,44 @@ scores}\label{compare-to-the-dmaqc-computed-scores}
 \NormalTok{calc_data =}\StringTok{ }\KeywordTok{read.csv}\NormalTok{(calc_data_file)}
 \KeywordTok{rownames}\NormalTok{(calc_data) =}\StringTok{ }\NormalTok{calc_data}\OperatorTok{$}\NormalTok{labelid}
 
-\CommentTok{# compare our computed freeze time and the given one above}
-\NormalTok{inds =}\StringTok{ }\KeywordTok{intersect}\NormalTok{(}\KeywordTok{rownames}\NormalTok{(spec_data),}\KeywordTok{rownames}\NormalTok{(calc_data))}
-\ControlFlowTok{for}\NormalTok{(tissue }\ControlFlowTok{in} \KeywordTok{unique}\NormalTok{(spec_data}\OperatorTok{$}\NormalTok{sampletypedescription))\{}
-\NormalTok{  currinds =}\StringTok{ }\NormalTok{inds[spec_data[inds,}\StringTok{"sampletypedescription"}\NormalTok{]}\OperatorTok{==}\NormalTok{tissue]}
-\NormalTok{  x1 =}\StringTok{ }\NormalTok{spec_data[currinds,}\StringTok{"time_to_freeze"}\NormalTok{]}
-\NormalTok{  x2 =}\StringTok{ }\NormalTok{calc_data[currinds,}\StringTok{"frozetime_after_acute"}\NormalTok{] }
-\NormalTok{  x2 =}\StringTok{ }\NormalTok{x2 }\OperatorTok{-}\StringTok{ }\NormalTok{calc_data[currinds,}\StringTok{"deathtime_after_acute"}\NormalTok{]}
-  \ControlFlowTok{if}\NormalTok{(}\KeywordTok{all}\NormalTok{(}\KeywordTok{is.na}\NormalTok{(x2))}\OperatorTok{||}\KeywordTok{all}\NormalTok{(}\KeywordTok{is.na}\NormalTok{(x1)))\{}\ControlFlowTok{next}\NormalTok{\}}
-  \CommentTok{# plot(x1*60,x2,main=tissue);abline(0,1)}
+\NormalTok{cols_for_analysis =}\StringTok{ }\KeywordTok{c}\NormalTok{(}\StringTok{"labelid"}\NormalTok{,}\StringTok{"Acute.test;weight"}\NormalTok{,}\StringTok{"Animal.Registration;weight"}\NormalTok{,}
+                      \StringTok{"Acute.test;endblood"}\NormalTok{,}\StringTok{"Acute.test;beginblood"}\NormalTok{,}
+                      \StringTok{"Animal.Specimen.Collection;t_edtafill"}\NormalTok{,}\StringTok{"Acute.test;t_complete"}\NormalTok{,}
+                      \StringTok{"Animal.Specimen.Collection;t_death"}\NormalTok{,}\StringTok{"Acute.test;t_complete"}\NormalTok{,}
+                      \StringTok{"t_freeze"}\NormalTok{,}\StringTok{"Acute.test;t_complete"}\NormalTok{)}
+\KeywordTok{table}\NormalTok{(}\KeywordTok{is.element}\NormalTok{(cols_for_analysis,}\DataTypeTok{set=}\KeywordTok{colnames}\NormalTok{(merged_dmaqc_data))) }\CommentTok{# sanity}
+\end{Highlighting}
+\end{Shaded}
+
+\begin{verbatim}
+## 
+## TRUE 
+##   11
+\end{verbatim}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\KeywordTok{par}\NormalTok{(}\DataTypeTok{mfrow=}\KeywordTok{c}\NormalTok{(}\DecValTok{2}\NormalTok{,}\DecValTok{3}\NormalTok{))}
+\ControlFlowTok{for}\NormalTok{(j }\ControlFlowTok{in} \KeywordTok{seq}\NormalTok{(}\DecValTok{2}\NormalTok{,}\KeywordTok{length}\NormalTok{(cols_for_analysis),}\DataTypeTok{by=}\DecValTok{2}\NormalTok{))\{}
+\NormalTok{  bic_version =}\StringTok{ }\KeywordTok{unique}\NormalTok{(merged_dmaqc_data[,cols_for_analysis[}\KeywordTok{c}\NormalTok{(}\DecValTok{1}\NormalTok{,j,j}\OperatorTok{+}\DecValTok{1}\NormalTok{)]])}
+  \KeywordTok{rownames}\NormalTok{(bic_version) =}\StringTok{ }\NormalTok{bic_version[,}\DecValTok{1}\NormalTok{]}
+\NormalTok{  dmaqc_version =}\StringTok{ }\NormalTok{calc_data[}\KeywordTok{rownames}\NormalTok{(bic_version),}\KeywordTok{c}\NormalTok{(}\DecValTok{3}\NormalTok{,}\DecValTok{3}\OperatorTok{+}\NormalTok{j}\OperatorTok{/}\DecValTok{2}\NormalTok{)]}
+  \ControlFlowTok{if}\NormalTok{(}\KeywordTok{mode}\NormalTok{(bic_version[,}\DecValTok{2}\NormalTok{])}\OperatorTok{==}\StringTok{"character"}\NormalTok{)\{}
+\NormalTok{    bic_version_score =}\StringTok{ }\KeywordTok{as.difftime}\NormalTok{(bic_version[,}\DecValTok{2}\NormalTok{])}\OperatorTok{-}\KeywordTok{as.difftime}\NormalTok{(bic_version[,}\DecValTok{3}\NormalTok{])}
+\NormalTok{    bic_version_score =}\StringTok{ }\KeywordTok{as.numeric}\NormalTok{(bic_version_score)}\OperatorTok{*}\DecValTok{60}\OperatorTok{*}\DecValTok{60}
+\NormalTok{  \}}
+  \ControlFlowTok{else}\NormalTok{\{}
+\NormalTok{    bic_version_score =}\StringTok{ }\NormalTok{bic_version[,}\DecValTok{2}\NormalTok{]}\OperatorTok{-}\NormalTok{bic_version[,}\DecValTok{3}\NormalTok{]}
+\NormalTok{  \}}
+  \KeywordTok{plot}\NormalTok{(bic_version_score,dmaqc_version[,}\DecValTok{2}\NormalTok{],}\DataTypeTok{pch=}\DecValTok{20}\NormalTok{,}\DataTypeTok{cex=}\FloatTok{1.2}\NormalTok{,}\DataTypeTok{col=}\StringTok{"blue"}\NormalTok{,}
+       \DataTypeTok{xlab=}\StringTok{"BICs computation"}\NormalTok{,}\DataTypeTok{ylab=}\StringTok{"DMAQC computation"}\NormalTok{,}
+       \DataTypeTok{main =} \KeywordTok{colnames}\NormalTok{(dmaqc_version)[}\DecValTok{2}\NormalTok{])}
+  \KeywordTok{abline}\NormalTok{(}\DecValTok{0}\NormalTok{,}\DecValTok{1}\NormalTok{,}\DataTypeTok{lty=}\DecValTok{2}\NormalTok{)}
 \NormalTok{\}}
 \end{Highlighting}
 \end{Shaded}
+
+\begin{center}\includegraphics[width=0.9\linewidth,height=0.9\textheight]{pheno_csv_files_analysis_files/figure-latex/unnamed-chunk-7-1} \end{center}
 
 
 \end{document}
