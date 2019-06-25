@@ -7,9 +7,9 @@ output:
 
 ```{r}
 # Set the working directory to the folder with the data
-# setwd("/Users/David/Desktop/MoTrPAC/march_2019/pheno_data/PASS1A.6M-RLS 0,01/3-Data Sets/")
-setwd("/Users/David/Desktop/MoTrPAC/april_2019/DMAQC_Transfer_Pass_1A.6M_1/3-Data_Sets/")
-all_csvs = list.files(".") # get all files in dir
+dmaqc_data_dir = "/Users/David/Desktop/MoTrPAC/data/pass_1a/dmaqc_pheno/"
+all_csvs = list.files(dmaqc_data_dir,full.names = T) # get all files in dir
+all_csvs = all_csvs[grepl(".csv$",all_csvs)] # make sure we take csv only
 # read all files
 csv_data = list()
 for(fname in all_csvs){
@@ -17,7 +17,7 @@ for(fname in all_csvs){
 }# sapply(csv_data,dim) # check the dimensions of the different datasets
 ```
 
-## Acute tests: basic statistics
+## Sanity check: Acute tests basic statistics
 
 ```{r, fig.align="center",out.height='50%',out.width='50%'}
 # Get the acute test data
@@ -30,9 +30,10 @@ test_times = as.difftime(ac_test_data$t_complete) - as.difftime(ac_test_data$t_s
 table(test_times)
 # Get the comment of the sample that is not 0.5h
 ac_test_data[test_times!=0.5,"comments"]
+ac_test_data$formatted_test_time = test_times
 ```
 
-Nest, we analyze the distances. We hypothesized that these are a function of the shocks given or "errors" in the process.
+Next, we analyze the distances. We illustrate how these are a function of the shocks and sex/weight.
 
 ```{r,fig.align="center",out.height='60%',out.width='60%'}
 
@@ -88,12 +89,14 @@ abline(0,1,col="red",lty=2,lwd=3)
 
 ## Site comparison
 
+In some versions of the DMAQC data there is a single site. In this case this section will not result in an output.
+
 ```{r,fig.align="center",out.height='60%',out.width='60%'}
 # Load additional information about the animals
 registr_data = csv_data[[which(grepl("Regist",names(csv_data)))]]
-rownames(registr_data) = as.character(registr_data$participantGUID)
+rownames(registr_data) = as.character(registr_data$pid)
 # make the rownames in the test data comparable
-rownames(trained_animals_data) = trained_animals_data$participantGUID
+rownames(trained_animals_data) = trained_animals_data$pid
 # add sex to the trained animal data data frame
 sex_key = c("Female","Male")
 trained_animals_data$sex = sex_key[registr_data[rownames(trained_animals_data),"sex"]]
@@ -109,40 +112,44 @@ table(trained_animals_data$site,trained_animals_data$sex)
 run_wilcox<-function(x1,x2){
   return(wilcox.test(x1[x2==x2[1]],x1[x2!=x2[1]])$p.value)
 }
-# Compare the distances, shocks, and weight
-par(mfrow=c(1,3),mar=c(10,4,4,4))
-# Site only
-p_dist = run_wilcox(trained_animals_data$distance,trained_animals_data$site)
-boxplot(distance~site,data=trained_animals_data,col="cyan",ylab="Distance",
+# Compare the distances, shocks, and weight (if we have multiple site)
+if (length(unique(ac_test_data$siteID))>1){
+  par(mfrow=c(1,3),mar=c(10,4,4,4))
+  # Site only
+  p_dist = run_wilcox(trained_animals_data$distance,trained_animals_data$site)
+  boxplot(distance~site,data=trained_animals_data,col="cyan",ylab="Distance",
         main=paste("Site vs. distance, p<",format(p_dist,digits = 2)),
         cex.main=1,las=2)
-p_timesshock = run_wilcox(trained_animals_data$timesshock,trained_animals_data$site)
-boxplot(timesshock~site,data=trained_animals_data,col="red",ylab="Times shocked",
+  p_timesshock = run_wilcox(trained_animals_data$timesshock,trained_animals_data$site)
+  boxplot(timesshock~site,data=trained_animals_data,col="red",ylab="Times shocked",
         main=paste("Site vs. times shocked, p<",format(p_timesshock,digits = 3)),
         cex.main=1,las=2)
-p_w = run_wilcox(trained_animals_data$weight,trained_animals_data$site)
-boxplot(weight~site,data=trained_animals_data,col="cyan",ylab="Weight",
+  p_w = run_wilcox(trained_animals_data$weight,trained_animals_data$site)
+  boxplot(weight~site,data=trained_animals_data,col="cyan",ylab="Weight",
         main=paste("Site vs. weight, p=",format(p_w,digits = 2)),
         cex.main=1,las=2)
-# Site and sex
-par(mfrow=c(1,3),mar=c(10,4,4,4))
-boxplot(distance~site+sex,data=trained_animals_data,col="cyan",ylab="Distance",
+  # Site and sex
+  par(mfrow=c(1,3),mar=c(10,4,4,4))
+  boxplot(distance~site+sex,data=trained_animals_data,col="cyan",ylab="Distance",
         main="Site vs. distance",cex.main=1,las=2)
-boxplot(timesshock~site+sex,data=trained_animals_data,col="red",ylab="Times shocked",
+  boxplot(timesshock~site+sex,data=trained_animals_data,col="red",ylab="Times shocked",
         main="Site vs. times shocked",cex.main=1,las=2)
-boxplot(weight~site+sex,data=trained_animals_data,col="cyan",ylab="Weight",
+  boxplot(weight~site+sex,data=trained_animals_data,col="cyan",ylab="Weight",
         main="Site vs. weight",cex.main=1,las=2)
 
-# Regress time shocked and distance vs. site and sex
-summary(lm(timesshock~site+sex,data=trained_animals_data))
-summary(lm(distance~site+sex,data=trained_animals_data))
+  # Regress time shocked and distance vs. site and sex
+  summary(lm(timesshock~site+sex,data=trained_animals_data))
+  summary(lm(distance~site+sex,data=trained_animals_data))  
+  }
+
 ```
 
-## Biospecimen data
+## Sanity checks: Biospecimen data
 
 ```{r, fig.align="center",out.height='50%',out.width='50%'}
 # Analysis of biospecimen data
 spec_data = csv_data[[which(grepl("Specimen.Processing.csv",names(csv_data)))]]
+rownames(spec_data) = spec_data$labelid
 # Parse the times and compute the difference between the freeze time and 
 # the collection time
 time_to_freeze1 = as.difftime(spec_data$t_freeze,units = "mins") -
@@ -156,11 +163,14 @@ time_to_freeze = time_to_freeze1
 table(is.na(time_to_freeze1),is.na(time_to_freeze2))
 time_to_freeze[is.na(time_to_freeze1)] = time_to_freeze2[is.na(time_to_freeze1)]
 spec_data$time_to_freeze = as.numeric(time_to_freeze)
-hist(spec_data$time_to_freeze,breaks=100)
+spec_data$time_to_freeze_from_collection = as.numeric(time_to_freeze1)
+spec_data$time_to_freeze_from_edta_spin = as.numeric(time_to_freeze2)
+hist(spec_data$time_to_freeze,breaks = 100)
 
 # Add site by name
 site_names = c("910"="Joslin","930"="Florida")
 spec_data$site = site_names[as.character(spec_data$siteid)]
+table(spec_data$site)
 
 inds = !is.na(time_to_freeze1)
 inds = grepl("adipose",spec_data$sampletypedescription,ignore.case = T)
@@ -168,12 +178,92 @@ inds = grepl("heart",spec_data$sampletypedescription,ignore.case = T) |
   grepl("liver",spec_data$sampletypedescription,ignore.case = T) |
   grepl("colon",spec_data$sampletypedescription,ignore.case = T) | 
   grepl("vastus",spec_data$sampletypedescription,ignore.case = T)
+# Using site info:
 # Here we use an interaction term and not addition as the R^2 is >2 times
 # greater this way
-summary(lm(time_to_freeze~sampletypedescription:site,data=spec_data[inds,]))
-par(mar=c(10,2,2,2))
-boxplot(time_to_freeze~site:sampletypedescription,data=spec_data[inds,],
-        ylab="Time to freeze",las=2)
+if (length(unique(spec_data$site))>1){
+  par(mar=c(10,2,2,2))
+  boxplot(time_to_freeze~site:sampletypedescription,data=spec_data[inds,],
+        ylab="Time to freeze",las=2)  
+  summary(lm(time_to_freeze~sampletypedescription:site,data=spec_data[inds,]))
+}
+# A single site
+if (length(unique(spec_data$site))==1){
+  par(mar=c(10,2,2,2))
+  boxplot(time_to_freeze~sampletypedescription,data=spec_data[inds,],
+        ylab="Time to freeze",las=2)  
+  summary(lm(time_to_freeze~sampletypedescription,data=spec_data[inds,]))
+}
+
 ```
+
+## Format the metadata table according to vial ids
+
+We now use DMAQC's mapping of label ids to vial ids and use it to generate a single metadata table that we can share with other sites.
+
+```{r}
+# Helper function for merging columns from data2 into data1
+merge_avoid_col_dup<-function(data1,data2,by_col){
+  data2_cols = c(by_col,setdiff(colnames(data2),colnames(data1)))
+  return(merge(data1, data2[,data2_cols], by=by_col))
+}
+# Get the animal data and merge
+merged_animal_data = ac_test_data
+colnames(merged_animal_data) = paste("Acute.test",colnames(merged_animal_data),sep=";")
+colnames(merged_animal_data)[grepl(";pid$",colnames(merged_animal_data))]="pid"
+tmp_ac_data = csv_data[[which(grepl("Animal.Familiarization",names(csv_data)))]]
+colnames(tmp_ac_data) = paste("Animal.Familiarization",colnames(tmp_ac_data),sep=";")
+colnames(tmp_ac_data)[grepl(";pid$",colnames(tmp_ac_data))]="pid"
+merged_animal_data = merge_avoid_col_dup(merged_animal_data,tmp_ac_data,by="pid")
+tmp_ac_data = csv_data[[which(grepl("Animal.Key",names(csv_data)))]]
+colnames(tmp_ac_data) = paste("Animal.Key",colnames(tmp_ac_data),sep=";")
+colnames(tmp_ac_data)[grepl(";pid$",colnames(tmp_ac_data))]="pid"
+merged_animal_data = merge_avoid_col_dup(merged_animal_data,tmp_ac_data,by="pid")
+tmp_ac_data = csv_data[[which(grepl("Animal.Registration",names(csv_data)))]]
+colnames(tmp_ac_data) = paste("Animal.Registration",colnames(tmp_ac_data),sep=";")
+colnames(tmp_ac_data)[grepl(";pid$",colnames(tmp_ac_data))]="pid"
+merged_animal_data = merge_avoid_col_dup(merged_animal_data,tmp_ac_data,by="pid")
+
+# Add the biospecimen data and create a large data frame
+merged_dmaqc_data = merge(merged_animal_data,spec_data,by="pid")
+print("Merged animal and biospecimen data tables, dim is:")
+print(dim(merged_dmaqc_data))
+
+# Now map DMAQC's label ids to vialids
+# Sort to make the most up to date file the first in the order
+mapping_files = sort(all_csvs[grepl("BICLabelData",all_csvs)],decreasing = T) 
+mapping_info = csv_data[[mapping_files[1]]]
+colnames(mapping_info) = tolower(colnames(mapping_info))
+table(is.element(spec_data$labelid,set=mapping_info$labelid))
+label2vial = as.character(mapping_info$labelid)
+names(label2vial) = as.character(mapping_info$vialLabel)
+merged_dmaqc_data$vialid = label2vial[as.character(merged_dmaqc_data$labelid)]
+rownames(merged_dmaqc_data) = merged_dmaqc_data$vialid
+
+```
+
+
+
+## Compare to the DMAQC computed scores
+
+```{r, fig.align="center",out.height='50%',out.width='50%'}
+calc_data_file = all_csvs[grepl("Calculated.V",all_csvs)]
+calc_data = read.csv(calc_data_file)
+rownames(calc_data) = calc_data$labelid
+
+# compare our computed freeze time and the given one above
+inds = intersect(rownames(spec_data),rownames(calc_data))
+for(tissue in unique(spec_data$sampletypedescription)){
+  currinds = inds[spec_data[inds,"sampletypedescription"]==tissue]
+  x1 = spec_data[currinds,"time_to_freeze"]
+  x2 = calc_data[currinds,"frozetime_after_acute"] 
+  x2 = x2 - calc_data[currinds,"deathtime_after_acute"]
+  if(all(is.na(x2))||all(is.na(x1))){next}
+  # plot(x1*60,x2,main=tissue);abline(0,1)
+}
+
+```
+
+
 
 
