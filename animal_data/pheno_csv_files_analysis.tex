@@ -24,7 +24,7 @@
 \usepackage[margin=1in]{geometry}
 \usepackage{hyperref}
 \hypersetup{unicode=true,
-            pdftitle={MoTrPAC Animal data: analysis of the phenotypic data},
+            pdftitle={PASS1A DMAQC data: analysis by BIC},
             pdfborder={0 0 0},
             breaklinks=true}
 \urlstyle{same}  % don't use monospace font for urls
@@ -86,7 +86,7 @@
 \setlength{\emergencystretch}{3em}  % prevent overfull lines
 \providecommand{\tightlist}{%
   \setlength{\itemsep}{0pt}\setlength{\parskip}{0pt}}
-\setcounter{secnumdepth}{0}
+\setcounter{secnumdepth}{5}
 % Redefines (sub)paragraphs to behave more like sections
 \ifx\paragraph\undefined\else
 \let\oldparagraph\paragraph
@@ -112,7 +112,7 @@
 }
 
 \setlength{\droptitle}{-2em}
-  \title{MoTrPAC Animal data: analysis of the phenotypic data}
+  \title{PASS1A DMAQC data: analysis by BIC}
   \pretitle{\vspace{\droptitle}\centering\huge}
   \posttitle{\par}
   \author{}
@@ -138,7 +138,7 @@
 \end{Highlighting}
 \end{Shaded}
 
-\subsection{Sanity check: Acute tests basic
+\section{Sanity check: Acute tests basic
 statistics}\label{sanity-check-acute-tests-basic-statistics}
 
 \begin{Shaded}
@@ -300,7 +300,7 @@ of the shocks and sex/weight.
 
 \begin{center}\includegraphics[width=0.6\linewidth,height=0.6\textheight]{pheno_csv_files_analysis_files/figure-latex/unnamed-chunk-3-2} \end{center}
 
-\subsection{Site comparison}\label{site-comparison}
+\section{Site comparison}\label{site-comparison}
 
 In some versions of the DMAQC data there is a single site. In this case
 this section will not result in an output.
@@ -380,7 +380,7 @@ this section will not result in an output.
 \end{Highlighting}
 \end{Shaded}
 
-\subsection{Sanity checks: Biospecimen
+\section{Sanity checks: Biospecimen
 data}\label{sanity-checks-biospecimen-data}
 
 \begin{Shaded}
@@ -494,7 +494,7 @@ data}\label{sanity-checks-biospecimen-data}
 ## F-statistic: 839.8 on 3 and 428 DF,  p-value: < 2.2e-16
 \end{verbatim}
 
-\subsection{Format the metadata table according to vial
+\section{Format the metadata table according to vial
 ids}\label{format-the-metadata-table-according-to-vial-ids}
 
 We now use DMAQC's mapping of label ids to vial ids and use it to
@@ -618,42 +618,51 @@ generate a single metadata table that we can share with other sites.
 ## [1] 8616  115
 \end{verbatim}
 
-\subsection{Compare to the DMAQC computed
+\section{Compare to the DMAQC computed
 scores}\label{compare-to-the-dmaqc-computed-scores}
 
-Fields to be computed: Weight gain before acute test:
-(Animal\_Acute\_Test.weight -- Animal\_Registration.weight) Lactate
-changes due to acute exercise: (Aminal\_Acute\_Test.endblood -
-Aminal\_Acute\_Test.beginblood) EDTA sample collection time:
-(Animal\_Specimen\_Collection.t\_edtafill -
-Aminal\_Acute\_Test.t\_complete) Time of death after acute test:
-(Animal\_Specimen\_Collection.t\_death -
-Aminal\_Acute\_Test.t\_complete) Sample frozen time after acute test:
-(Animal\_Sample\_Processing.t\_freeze - Aminal\_Acute\_Test.t\_complete)
+As requested by Ashley (email from June 7 2019), the following computed
+fields were added by DMQAQC:
+
+\begin{enumerate}
+\def\labelenumi{\arabic{enumi}.}
+\tightlist
+\item
+  Weight gain before acute test: (Animal\_Acute\_Test.weight --
+  Animal\_Registration.weight)
+\item
+  Lactate changes due to acute exercise: (Aminal\_Acute\_Test.endblood -
+  Aminal\_Acute\_Test.beginblood)
+\item
+  EDTA sample collection time: (Animal\_Specimen\_Collection.t\_edtafill
+  - Aminal\_Acute\_Test.t\_complete)
+\item
+  Time of death after acute test: (Animal\_Specimen\_Collection.t\_death
+  - Aminal\_Acute\_Test.t\_complete)
+\item
+  Sample frozen time after acute test:
+  (Animal\_Sample\_Processing.t\_freeze -
+  Aminal\_Acute\_Test.t\_complete)
+\end{enumerate}
+
+Below, we show that our merged table and computations in R result in the
+same numbers.
 
 \begin{Shaded}
 \begin{Highlighting}[]
+\CommentTok{# Read the DMAQC calculated fields}
 \NormalTok{calc_data_file =}\StringTok{ }\NormalTok{all_csvs[}\KeywordTok{grepl}\NormalTok{(}\StringTok{"Calculated.V"}\NormalTok{,all_csvs)]}
 \NormalTok{calc_data =}\StringTok{ }\KeywordTok{read.csv}\NormalTok{(calc_data_file)}
 \KeywordTok{rownames}\NormalTok{(calc_data) =}\StringTok{ }\NormalTok{calc_data}\OperatorTok{$}\NormalTok{labelid}
-
+\CommentTok{# Extract the relevant columns from our merged dataset}
 \NormalTok{cols_for_analysis =}\StringTok{ }\KeywordTok{c}\NormalTok{(}\StringTok{"labelid"}\NormalTok{,}\StringTok{"Acute.test;weight"}\NormalTok{,}\StringTok{"Animal.Registration;weight"}\NormalTok{,}
                       \StringTok{"Acute.test;endblood"}\NormalTok{,}\StringTok{"Acute.test;beginblood"}\NormalTok{,}
                       \StringTok{"Animal.Specimen.Collection;t_edtafill"}\NormalTok{,}\StringTok{"Acute.test;t_complete"}\NormalTok{,}
                       \StringTok{"Animal.Specimen.Collection;t_death"}\NormalTok{,}\StringTok{"Acute.test;t_complete"}\NormalTok{,}
                       \StringTok{"t_freeze"}\NormalTok{,}\StringTok{"Acute.test;t_complete"}\NormalTok{)}
-\KeywordTok{table}\NormalTok{(}\KeywordTok{is.element}\NormalTok{(cols_for_analysis,}\DataTypeTok{set=}\KeywordTok{colnames}\NormalTok{(merged_dmaqc_data))) }\CommentTok{# sanity}
-\end{Highlighting}
-\end{Shaded}
+\CommentTok{#  table(is.element(cols_for_analysis,set=colnames(merged_dmaqc_data))) # sanity}
 
-\begin{verbatim}
-## 
-## TRUE 
-##   11
-\end{verbatim}
-
-\begin{Shaded}
-\begin{Highlighting}[]
+\CommentTok{# Go over each score and compare the two versions}
 \KeywordTok{par}\NormalTok{(}\DataTypeTok{mfrow=}\KeywordTok{c}\NormalTok{(}\DecValTok{2}\NormalTok{,}\DecValTok{3}\NormalTok{))}
 \ControlFlowTok{for}\NormalTok{(j }\ControlFlowTok{in} \KeywordTok{seq}\NormalTok{(}\DecValTok{2}\NormalTok{,}\KeywordTok{length}\NormalTok{(cols_for_analysis),}\DataTypeTok{by=}\DecValTok{2}\NormalTok{))\{}
 \NormalTok{  bic_version =}\StringTok{ }\KeywordTok{unique}\NormalTok{(merged_dmaqc_data[,cols_for_analysis[}\KeywordTok{c}\NormalTok{(}\DecValTok{1}\NormalTok{,j,j}\OperatorTok{+}\DecValTok{1}\NormalTok{)]])}

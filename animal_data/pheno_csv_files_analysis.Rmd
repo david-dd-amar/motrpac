@@ -1,7 +1,8 @@
 ---
-title: 'MoTrPAC Animal data: analysis of the phenotypic data'
+title: 'PASS1A DMAQC data: analysis by BIC'
 output:
-  pdf_document: default
+  pdf_document: 
+    number_sections: true
   html_notebook: default
 ---
 
@@ -17,7 +18,7 @@ for(fname in all_csvs){
 }# sapply(csv_data,dim) # check the dimensions of the different datasets
 ```
 
-## Sanity check: Acute tests basic statistics
+# Sanity check: Acute tests basic statistics
 
 ```{r, fig.align="center",out.height='50%',out.width='50%'}
 # Get the acute test data
@@ -87,7 +88,7 @@ plot(dist_lm$fitted.values,trained_animals_data$distance,lwd=2,
 abline(0,1,col="red",lty=2,lwd=3)
 ```
 
-## Site comparison
+# Site comparison
 
 In some versions of the DMAQC data there is a single site. In this case this section will not result in an output.
 
@@ -144,7 +145,7 @@ if (length(unique(ac_test_data$siteID))>1){
 
 ```
 
-## Sanity checks: Biospecimen data
+# Sanity checks: Biospecimen data
 
 ```{r, fig.align="center",out.height='50%',out.width='50%'}
 # Analysis of biospecimen data
@@ -197,7 +198,7 @@ if (length(unique(spec_data$site))==1){
 
 ```
 
-## Format the metadata table according to vial ids
+# Format the metadata table according to vial ids
 
 We now use DMAQC's mapping of label ids to vial ids and use it to generate a single metadata table that we can share with other sites.
 
@@ -261,27 +262,32 @@ print(dim(merged_dmaqc_data))
 
 
 
-## Compare to the DMAQC computed scores
+# Compare to the DMAQC computed scores
 
-Fields to be computed:
-Weight gain before acute test: (Animal_Acute_Test.weight – Animal_Registration.weight)
-Lactate changes due to acute exercise: (Aminal_Acute_Test.endblood - Aminal_Acute_Test.beginblood)
-EDTA sample collection time: (Animal_Specimen_Collection.t_edtafill - Aminal_Acute_Test.t_complete)
-Time of death after acute test: (Animal_Specimen_Collection.t_death - Aminal_Acute_Test.t_complete)
-Sample frozen time after acute test: (Animal_Sample_Processing.t_freeze - Aminal_Acute_Test.t_complete)
+As requested by Ashley (email from June 7 2019), the following computed fields were added by DMQAQC:
+
+1. Weight gain before acute test: (Animal_Acute_Test.weight – Animal_Registration.weight)
+2. Lactate changes due to acute exercise: (Aminal_Acute_Test.endblood - Aminal_Acute_Test.beginblood)
+3. EDTA sample collection time: (Animal_Specimen_Collection.t_edtafill - Aminal_Acute_Test.t_complete)
+4. Time of death after acute test: (Animal_Specimen_Collection.t_death - Aminal_Acute_Test.t_complete)
+5. Sample frozen time after acute test: (Animal_Sample_Processing.t_freeze - Aminal_Acute_Test.t_complete)
+
+Below, we show that our merged table and computations in R result in the same numbers.
 
 ```{r, fig.align="center",out.height='90%',out.width='90%'}
+# Read the DMAQC calculated fields
 calc_data_file = all_csvs[grepl("Calculated.V",all_csvs)]
 calc_data = read.csv(calc_data_file)
 rownames(calc_data) = calc_data$labelid
-
+# Extract the relevant columns from our merged dataset
 cols_for_analysis = c("labelid","Acute.test;weight","Animal.Registration;weight",
                       "Acute.test;endblood","Acute.test;beginblood",
                       "Animal.Specimen.Collection;t_edtafill","Acute.test;t_complete",
                       "Animal.Specimen.Collection;t_death","Acute.test;t_complete",
                       "t_freeze","Acute.test;t_complete")
-table(is.element(cols_for_analysis,set=colnames(merged_dmaqc_data))) # sanity
+#  table(is.element(cols_for_analysis,set=colnames(merged_dmaqc_data))) # sanity
 
+# Go over each score and compare the two versions
 par(mfrow=c(2,3))
 for(j in seq(2,length(cols_for_analysis),by=2)){
   bic_version = unique(merged_dmaqc_data[,cols_for_analysis[c(1,j,j+1)]])
@@ -299,6 +305,8 @@ for(j in seq(2,length(cols_for_analysis),by=2)){
        main = colnames(dmaqc_version)[2])
   abline(0,1,lty=2)
 }
+
+# As the tests above were successfull, combine the two data frames and save the result
 
 ```
 
