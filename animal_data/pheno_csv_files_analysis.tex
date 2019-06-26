@@ -528,8 +528,9 @@ generate a single metadata table that we can share with other sites.
 \KeywordTok{colnames}\NormalTok{(tmp_ac_data)[}\KeywordTok{grepl}\NormalTok{(}\StringTok{"_pid$"}\NormalTok{,}\KeywordTok{colnames}\NormalTok{(tmp_ac_data))]=}\StringTok{"pid"}
 \NormalTok{merged_animal_data =}\StringTok{ }\KeywordTok{merge_avoid_col_dup}\NormalTok{(merged_animal_data,tmp_ac_data,}\DataTypeTok{by=}\StringTok{"pid"}\NormalTok{)}
 
-
 \CommentTok{# Add the biospecimen data and create a large data frame}
+\CommentTok{# Reread the Spec data, we do not need the extra columns that were added}
+\NormalTok{spec_data =}\StringTok{ }\NormalTok{csv_data[[}\KeywordTok{which}\NormalTok{(}\KeywordTok{grepl}\NormalTok{(}\StringTok{"Specimen.Processing.csv"}\NormalTok{,}\KeywordTok{names}\NormalTok{(csv_data)))]]}
 \NormalTok{merged_dmaqc_data =}\StringTok{ }\KeywordTok{merge}\NormalTok{(merged_animal_data,spec_data,}\DataTypeTok{by=}\StringTok{"pid"}\NormalTok{)}
 \KeywordTok{print}\NormalTok{(}\StringTok{"Merged animal and biospecimen data tables, dim is:"}\NormalTok{)}
 \end{Highlighting}
@@ -546,7 +547,7 @@ generate a single metadata table that we can share with other sites.
 \end{Shaded}
 
 \begin{verbatim}
-## [1] 2699  111
+## [1] 2699  107
 \end{verbatim}
 
 \begin{Shaded}
@@ -592,7 +593,7 @@ generate a single metadata table that we can share with other sites.
 \end{Shaded}
 
 \begin{verbatim}
-## [1] 1638  111
+## [1] 1638  107
 \end{verbatim}
 
 \begin{Shaded}
@@ -615,8 +616,26 @@ generate a single metadata table that we can share with other sites.
 \end{Shaded}
 
 \begin{verbatim}
-## [1] 8616  115
+## [1] 8616  111
 \end{verbatim}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\CommentTok{# Sanity and removing doubled columns}
+\KeywordTok{all}\NormalTok{(merged_dmaqc_data}\OperatorTok{$}\NormalTok{pid.x }\OperatorTok{==}\StringTok{ }\NormalTok{merged_dmaqc_data}\OperatorTok{$}\NormalTok{pid.y)}
+\end{Highlighting}
+\end{Shaded}
+
+\begin{verbatim}
+## [1] TRUE
+\end{verbatim}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\NormalTok{merged_dmaqc_data =}\StringTok{ }\NormalTok{merged_dmaqc_data[}\OperatorTok{-}\KeywordTok{which}\NormalTok{(}\KeywordTok{colnames}\NormalTok{(merged_dmaqc_data)}\OperatorTok{==}\StringTok{"pid.x"}\NormalTok{)]}
+\KeywordTok{colnames}\NormalTok{(merged_dmaqc_data)[}\KeywordTok{colnames}\NormalTok{(merged_dmaqc_data)}\OperatorTok{==}\StringTok{"pid.y"}\NormalTok{] =}\StringTok{ "pid"}
+\end{Highlighting}
+\end{Shaded}
 
 \section{Compare to the DMAQC computed
 scores}\label{compare-to-the-dmaqc-computed-scores}
@@ -682,6 +701,10 @@ same numbers.
 \NormalTok{\}}
 
 \CommentTok{# As the tests above were successfull, combine the two data frames and save the result}
+\NormalTok{calc_data =}\StringTok{ }\NormalTok{calc_data[,}\OperatorTok{-}\KeywordTok{c}\NormalTok{(}\DecValTok{1}\OperatorTok{:}\DecValTok{2}\NormalTok{)]}
+\KeywordTok{colnames}\NormalTok{(calc_data) =}\StringTok{ }\KeywordTok{paste}\NormalTok{(}\StringTok{"Calc.Features"}\NormalTok{,}\KeywordTok{colnames}\NormalTok{(calc_data),}\DataTypeTok{sep=}\StringTok{"_"}\NormalTok{)}
+\KeywordTok{colnames}\NormalTok{(calc_data)[}\KeywordTok{grepl}\NormalTok{(}\StringTok{"_labelid$"}\NormalTok{,}\KeywordTok{colnames}\NormalTok{(calc_data))]=}\StringTok{"labelid"}
+\NormalTok{merged_dmaqc_data =}\StringTok{ }\KeywordTok{merge_avoid_col_dup}\NormalTok{(merged_dmaqc_data,calc_data,}\DataTypeTok{by=}\StringTok{"labelid"}\NormalTok{)}
 \end{Highlighting}
 \end{Shaded}
 
@@ -801,6 +824,19 @@ time point of each animal in the exercise group.
 ## Multiple R-squared:  0.9949, Adjusted R-squared:  0.9943 
 ## F-statistic:  1538 on 8 and 63 DF,  p-value: < 2.2e-16
 \end{verbatim}
+
+\section{Save the merged datasets in the
+cloud}\label{save-the-merged-datasets-in-the-cloud}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\CommentTok{# To see the bucket list}
+\CommentTok{# gsutil ls -p motrpac-portal-dev}
+\KeywordTok{write.table}\NormalTok{(merged_dmaqc_data,}\DataTypeTok{file=}\StringTok{"merged_dmaqc_data.txt"}\NormalTok{,}\DataTypeTok{quote =}\NormalTok{ F,}\DataTypeTok{sep=}\StringTok{"}\CharTok{\textbackslash{}t}\StringTok{"}\NormalTok{,}\DataTypeTok{row.names =}\NormalTok{ F)}
+\KeywordTok{save}\NormalTok{(merged_dmaqc_data,}\DataTypeTok{file=}\StringTok{"merged_dmaqc_data.RData"}\NormalTok{)}
+\KeywordTok{system}\NormalTok{(}\StringTok{"gsutil cp merged_dmaqc_data.txt gs://bic_data_analysis/pass1a/pheno_dmaqc/"}\NormalTok{)}
+\end{Highlighting}
+\end{Shaded}
 
 
 \end{document}

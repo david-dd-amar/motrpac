@@ -229,8 +229,9 @@ colnames(tmp_ac_data) = paste("Animal.Specimen.Collection",colnames(tmp_ac_data)
 colnames(tmp_ac_data)[grepl("_pid$",colnames(tmp_ac_data))]="pid"
 merged_animal_data = merge_avoid_col_dup(merged_animal_data,tmp_ac_data,by="pid")
 
-
 # Add the biospecimen data and create a large data frame
+# Reread the Spec data, we do not need the extra columns that were added
+spec_data = csv_data[[which(grepl("Specimen.Processing.csv",names(csv_data)))]]
 merged_dmaqc_data = merge(merged_animal_data,spec_data,by="pid")
 print("Merged animal and biospecimen data tables, dim is:")
 print(dim(merged_dmaqc_data))
@@ -258,6 +259,10 @@ merged_dmaqc_data = merge(merged_dmaqc_data,mapping_info,by="labelid")
 print("Merged animal and biospecimen data tables, after adding vialids, new dim is:")
 print(dim(merged_dmaqc_data))
 
+# Sanity and removing doubled columns
+all(merged_dmaqc_data$pid.x == merged_dmaqc_data$pid.y)
+merged_dmaqc_data = merged_dmaqc_data[-which(colnames(merged_dmaqc_data)=="pid.x")]
+colnames(merged_dmaqc_data)[colnames(merged_dmaqc_data)=="pid.y"] = "pid"
 ```
 
 # Compare to the DMAQC computed scores
@@ -305,7 +310,10 @@ for(j in seq(2,length(cols_for_analysis),by=2)){
 }
 
 # As the tests above were successfull, combine the two data frames and save the result
-
+calc_data = calc_data[,-c(1:2)]
+colnames(calc_data) = paste("Calc.Features",colnames(calc_data),sep="_")
+colnames(calc_data)[grepl("_labelid$",colnames(calc_data))]="labelid"
+merged_dmaqc_data = merge_avoid_col_dup(merged_dmaqc_data,calc_data,by="labelid")
 ```
 
 # Correlations with time points
@@ -355,6 +363,21 @@ print("No significant linear association between the time points and distance:")
 summary(dist_lm2)
 ```
 
+# Save the merged datasets in the cloud
+
+```{r}
+# To see the bucket list
+# gsutil ls -p motrpac-portal-dev
+write.table(merged_dmaqc_data,file="merged_dmaqc_data.txt",
+            quote = F,sep="\t",row.names = F)
+save(merged_dmaqc_data,file="merged_dmaqc_data.RData")
+system(paste("~/google-cloud-sdk/bin/gsutil", "cp merged_dmaqc_data.txt",
+             "gs://bic_data_analysis/pass1a/pheno_dmaqc/"))
+system(paste("~/google-cloud-sdk/bin/gsutil", "cp merged_dmaqc_data.RData",
+             "gs://bic_data_analysis/pass1a/pheno_dmaqc/"))
+system("rm merged_dmaqc_data.txt")
+system("rm merged_dmaqc_data.RData")
+```
 
 
 
