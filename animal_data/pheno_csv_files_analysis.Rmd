@@ -210,23 +210,23 @@ merge_avoid_col_dup<-function(data1,data2,by_col){
 }
 # Get the animal data and merge
 merged_animal_data = ac_test_data
-colnames(merged_animal_data) = paste("Acute.test",colnames(merged_animal_data),sep=";")
-colnames(merged_animal_data)[grepl(";pid$",colnames(merged_animal_data))]="pid"
+colnames(merged_animal_data) = paste("Acute.test",colnames(merged_animal_data),sep="_")
+colnames(merged_animal_data)[grepl("_pid$",colnames(merged_animal_data))]="pid"
 tmp_ac_data = csv_data[[which(grepl("Animal.Familiarization",names(csv_data)))]]
-colnames(tmp_ac_data) = paste("Animal.Familiarization",colnames(tmp_ac_data),sep=";")
-colnames(tmp_ac_data)[grepl(";pid$",colnames(tmp_ac_data))]="pid"
+colnames(tmp_ac_data) = paste("Animal.Familiarization",colnames(tmp_ac_data),sep="_")
+colnames(tmp_ac_data)[grepl("_pid$",colnames(tmp_ac_data))]="pid"
 merged_animal_data = merge_avoid_col_dup(merged_animal_data,tmp_ac_data,by="pid")
 tmp_ac_data = csv_data[[which(grepl("Animal.Key",names(csv_data)))]]
-colnames(tmp_ac_data) = paste("Animal.Key",colnames(tmp_ac_data),sep=";")
-colnames(tmp_ac_data)[grepl(";pid$",colnames(tmp_ac_data))]="pid"
+colnames(tmp_ac_data) = paste("Animal.Key",colnames(tmp_ac_data),sep="_")
+colnames(tmp_ac_data)[grepl("_pid$",colnames(tmp_ac_data))]="pid"
 merged_animal_data = merge_avoid_col_dup(merged_animal_data,tmp_ac_data,by="pid")
 tmp_ac_data = csv_data[[which(grepl("Animal.Registration",names(csv_data)))]]
-colnames(tmp_ac_data) = paste("Animal.Registration",colnames(tmp_ac_data),sep=";")
-colnames(tmp_ac_data)[grepl(";pid$",colnames(tmp_ac_data))]="pid"
+colnames(tmp_ac_data) = paste("Animal.Registration",colnames(tmp_ac_data),sep="_")
+colnames(tmp_ac_data)[grepl("_pid$",colnames(tmp_ac_data))]="pid"
 merged_animal_data = merge_avoid_col_dup(merged_animal_data,tmp_ac_data,by="pid")
 tmp_ac_data = csv_data[[which(grepl("Specimen.Collection",names(csv_data)))]]
-colnames(tmp_ac_data) = paste("Animal.Specimen.Collection",colnames(tmp_ac_data),sep=";")
-colnames(tmp_ac_data)[grepl(";pid$",colnames(tmp_ac_data))]="pid"
+colnames(tmp_ac_data) = paste("Animal.Specimen.Collection",colnames(tmp_ac_data),sep="_")
+colnames(tmp_ac_data)[grepl("_pid$",colnames(tmp_ac_data))]="pid"
 merged_animal_data = merge_avoid_col_dup(merged_animal_data,tmp_ac_data,by="pid")
 
 
@@ -260,8 +260,6 @@ print(dim(merged_dmaqc_data))
 
 ```
 
-
-
 # Compare to the DMAQC computed scores
 
 As requested by Ashley (email from June 7 2019), the following computed fields were added by DMQAQC:
@@ -280,11 +278,11 @@ calc_data_file = all_csvs[grepl("Calculated.V",all_csvs)]
 calc_data = read.csv(calc_data_file)
 rownames(calc_data) = calc_data$labelid
 # Extract the relevant columns from our merged dataset
-cols_for_analysis = c("labelid","Acute.test;weight","Animal.Registration;weight",
-                      "Acute.test;endblood","Acute.test;beginblood",
-                      "Animal.Specimen.Collection;t_edtafill","Acute.test;t_complete",
-                      "Animal.Specimen.Collection;t_death","Acute.test;t_complete",
-                      "t_freeze","Acute.test;t_complete")
+cols_for_analysis = c("labelid","Acute.test_weight","Animal.Registration_weight",
+                      "Acute.test_endblood","Acute.test_beginblood",
+                      "Animal.Specimen.Collection_t_edtafill","Acute.test_t_complete",
+                      "Animal.Specimen.Collection_t_death","Acute.test_t_complete",
+                      "t_freeze","Acute.test_t_complete")
 #  table(is.element(cols_for_analysis,set=colnames(merged_dmaqc_data))) # sanity
 
 # Go over each score and compare the two versions
@@ -308,6 +306,53 @@ for(j in seq(2,length(cols_for_analysis),by=2)){
 
 # As the tests above were successfull, combine the two data frames and save the result
 
+```
+
+# Correlations with time points
+
+Based on the analyses above we know that the distances are mostly correlated with the shock length and weight/sex. We now plot the achieved distances as a function of the shock data but colored by the time point of each animal in the exercise group.
+
+```{r,fig.align="center",out.height='60%',out.width='60%'}
+library(ggplot2)
+parse_timepoint<-function(x){
+  arrs = strsplit(x,split=" ")
+  tps = sapply(arrs,function(x)x[3])
+  tps = as.numeric(tps)
+  tps[is.na(tps)]=-1
+  return(tps)
+}
+
+# colnames(merged_dmaqc_data)[grepl("sex",colnames(merged_dmaqc_data))]
+merged_dmaqc_data$timepoint = parse_timepoint(merged_dmaqc_data[,"Animal.Key_ANIRandGroup"])
+merged_dmaqc_data$is_control = grepl("control",
+      merged_dmaqc_data[,"Animal.Key_ANIRandGroup"],ignore.case = T)
+
+# Reduce the data by label ids to avoid duplications
+inds = !is.na(merged_dmaqc_data$`Acute.test_howlongshock`)
+df = merged_dmaqc_data[inds,c("bid","Acute.test_distance",
+                              "Acute.test_howlongshock","timepoint",
+                              "Animal.Registration_sex")]
+df = unique(df)
+print(paste("Number of bids in the reduced data:",nrow(df)))
+
+# Marginal correlation
+rho = cor(df$`Acute.test_howlongshock`,
+          df$`Acute.test_distance`)
+rho = format(rho,digits = 3)
+
+# A simple 2D plot
+ggplot(df,
+       aes(x=`Acute.test_distance`, y=`Acute.test_howlongshock`,
+           shape=as.factor(Animal.Registration_sex), color=as.factor(timepoint))) + 
+  geom_point(size=2) + ggtitle(paste("Distance vs. Shock length (+time point), rho=",rho)) + 
+  theme(plot.title = element_text(hjust = 0.5))
+
+# Look at the linear regression, do we see a correlation between time
+# and distance?
+dist_lm2 = lm(Acute.test_distance~Acute.test_howlongshock+
+                as.factor(timepoint)+Animal.Registration_sex,data=df)
+print("No significant linear association between the time points and distance:")
+summary(dist_lm2)
 ```
 
 
