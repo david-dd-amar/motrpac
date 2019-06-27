@@ -768,36 +768,18 @@ F-statistic:  1538 on 8 and 63 DF,  p-value: &lt; 2.2e-16</code></pre>
 <h1>Save the merged datasets in the cloud</h1>
 <!-- rnb-text-end -->
 <!-- rnb-chunk-begin -->
-<!-- rnb-source-begin eyJkYXRhIjoiYGBgclxuc3lzdGVtKHBhc3RlKFwifi9nb29nbGUtY2xvdWQtc2RrL2Jpbi9nc3V0aWxcIiwgXCJjcCBtZXJnZWRfZG1hcWNfZGF0YS50eHRcIixcbiAgICAgICAgICAgICBcImdzOi8vYmljX2RhdGFfYW5hbHlzaXMvcGFzczFhL3BoZW5vX2RtYXFjL1wiKSlcblxuYGBgIn0= -->
-<pre class="r"><code>system(paste(&quot;~/google-cloud-sdk/bin/gsutil&quot;, &quot;cp merged_dmaqc_data.txt&quot;,
+<!-- rnb-source-begin eyJkYXRhIjoiYGBgclxuc3lzdGVtKHBhc3RlKFwifi9nb29nbGUtY2xvdWQtc2RrL2Jpbi9nc3V0aWxcIiwgXCJjcCBtZXJnZWRfZG1hcWNfZGF0YS5SRGF0YVwiLFxuICAgICAgICAgICAgIFwiZ3M6Ly9iaWNfZGF0YV9hbmFseXNpcy9wYXNzMWEvcGhlbm9fZG1hcWMvXCIpKVxuXG5gYGAifQ== -->
+<pre class="r"><code>system(paste(&quot;~/google-cloud-sdk/bin/gsutil&quot;, &quot;cp merged_dmaqc_data.RData&quot;,
              &quot;gs://bic_data_analysis/pass1a/pheno_dmaqc/&quot;))
 </code></pre>
 <!-- rnb-source-end -->
-<!-- rnb-output-begin eyJkYXRhIjoiQ29weWluZyBmaWxlOi8vbWVyZ2VkX2RtYXFjX2RhdGEudHh0IFtDb250ZW50LVR5cGU9dGV4dC9wbGFpbl0uLi5cbi8gWzAgZmlsZXNdWyAgICAwLjAgQi8gIDUuNSBNaUJdICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgXG4tXG4tIFswIGZpbGVzXVs3OTEuNCBLaUIvICA1LjUgTWlCXSAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIFxuXFxcblxcIFswIGZpbGVzXVsgIDEuMyBNaUIvICA1LjUgTWlCXSAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIFxufFxuL1xuLyBbMCBmaWxlc11bICAyLjEgTWlCLyAgNS41IE1pQl0gICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICBcbi1cbi0gWzAgZmlsZXNdWyAgMi44IE1pQi8gIDUuNSBNaUJdICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgXG5cXFxufFxufCBbMCBmaWxlc11bICAzLjYgTWlCLyAgNS41IE1pQl0gICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICBcbi9cbi8gWzAgZmlsZXNdWyAgNC40IE1pQi8gIDUuNSBNaUJdICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgXG4tXG4tIFswIGZpbGVzXVsgIDQuOSBNaUIvICA1LjUgTWlCXSAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIFxuXFxcbnxcbnwgWzAgZmlsZXNdWyAgNS41IE1pQi8gIDUuNSBNaUJdICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgXG58IFsxIGZpbGVzXVsgIDUuNSBNaUIvICA1LjUgTWlCXSAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIFxuXG5PcGVyYXRpb24gY29tcGxldGVkIG92ZXIgMSBvYmplY3RzLzUuNSBNaUIuICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICBcbiJ9 -->
-<pre><code>Copying file://merged_dmaqc_data.txt [Content-Type=text/plain]...
-/ [0 files][    0.0 B/  5.5 MiB]                                                
+<!-- rnb-output-begin eyJkYXRhIjoiQ29weWluZyBmaWxlOi8vbWVyZ2VkX2RtYXFjX2RhdGEuUkRhdGEgW0NvbnRlbnQtVHlwZT1hcHBsaWNhdGlvbi9vY3RldC1zdHJlYW1dLi4uXG4vIFswIGZpbGVzXVsgICAgMC4wIEIvMTA0LjggS2lCXSAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIFxuLyBbMSBmaWxlc11bMTA0LjggS2lCLzEwNC44IEtpQl0gICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICBcbi1cblxuT3BlcmF0aW9uIGNvbXBsZXRlZCBvdmVyIDEgb2JqZWN0cy8xMDQuOCBLaUIuICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgXG4ifQ== -->
+<pre><code>Copying file://merged_dmaqc_data.RData [Content-Type=application/octet-stream]...
+/ [0 files][    0.0 B/104.8 KiB]                                                
+/ [1 files][104.8 KiB/104.8 KiB]                                                
 -
-- [0 files][791.4 KiB/  5.5 MiB]                                                
-\
-\ [0 files][  1.3 MiB/  5.5 MiB]                                                
-|
-/
-/ [0 files][  2.1 MiB/  5.5 MiB]                                                
--
-- [0 files][  2.8 MiB/  5.5 MiB]                                                
-\
-|
-| [0 files][  3.6 MiB/  5.5 MiB]                                                
-/
-/ [0 files][  4.4 MiB/  5.5 MiB]                                                
--
-- [0 files][  4.9 MiB/  5.5 MiB]                                                
-\
-|
-| [0 files][  5.5 MiB/  5.5 MiB]                                                
-| [1 files][  5.5 MiB/  5.5 MiB]                                                
 
-Operation completed over 1 objects/5.5 MiB.                                      </code></pre>
+Operation completed over 1 objects/104.8 KiB.                                    </code></pre>
 <!-- rnb-output-end -->
 <!-- rnb-chunk-end -->
 <!-- rnb-text-begin -->
