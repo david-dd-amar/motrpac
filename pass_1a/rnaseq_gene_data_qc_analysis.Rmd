@@ -15,9 +15,14 @@ Phase 1A raw data was preprocessed at the BIC using our pipeline, which was impl
 Read the data from both sites - FPKMs, counts, and metadata (including the QC scores).
 
 ```{r,results='hide',warning=FALSE,message=FALSE,error=FALSE}
+# load required libraries
 setwd("/Users/David/Desktop/MoTrPAC/data/pass_1a/rnaseq/")
 library(data.table);library(DESeq2)
 library(preprocessCore);library(ggplot2)
+library(corrplot)
+# load our helper functions
+source("https://raw.githubusercontent.com/david-dd-amar/motrpac/master/tools/preprocessing_helper_functions.R")
+source("https://raw.githubusercontent.com/david-dd-amar/motrpac/master/tools/association_analysis_functions.R")
 
 # Data paths
 site2fpkm_path = list(
@@ -39,74 +44,6 @@ rnaseq_meta[rnaseq_meta=="N/A"] = NA
 print("Number of samples flagged according to the MOP's thersholds:")
 print(sum(rnaseq_meta$IsFlagged))
 
-# Metadata of the animals and biospecimen: analyze the DMAQC data directly
-# This is a merged data frame containing the animal key and
-# registry data from dmaqc, created using:
-dmaqc_metadata_path = 
-  "/Users/David/Desktop/MoTrPAC/data/pass_1a/dmaqc_pheno/"
-dmaqc_files = list.files(dmaqc_metadata_path,full.names = T)
-animal_key_file = dmaqc_files[grepl("Animal.Key",dmaqc_files)]
-animal_regstr_file = dmaqc_files[grepl("Regis",dmaqc_files)]
-animal_acute_test_file = dmaqc_files[grepl("Acute",dmaqc_files)]
-animal_acute_test_data = read.csv(animal_acute_test_file,stringsAsFactors = F)
-animal_key_data = read.csv(animal_key_file,stringsAsFactors = F)
-animal_reg_data = read.csv(animal_regstr_file,stringsAsFactors = F)
-rownames(animal_key_data) = animal_key_data$pid
-rownames(animal_reg_data) = animal_reg_data$pid
-rownames(animal_acute_test_data) = animal_acute_test_data$pid
-animal_metadata = cbind(animal_key_data,animal_reg_data[rownames(animal_key_data),],
-                        animal_acute_test_data[rownames(animal_key_data),])
-# Show some fields
-print("Animal metadata, time label table:")
-print(table(animal_metadata$ANIRandGroup))
-print("Animal metadata, sex table:")
-print(table(animal_metadata$sex))
-
-# Parse specific columns in the animal metadata data frame
-parse_shocktime<-function(x){
-  if(is.na(x)||nchar(x)==0){return(0)}
-  arr = strsplit(x,split=":")[[1]]
-  return(as.numeric(arr[1])*60 + as.numeric(arr[2]))
-}
-parse_timepoint<-function(x){
-  arrs = strsplit(x,split=" ")
-  tps = sapply(arrs,function(x)x[3])
-  tps = as.numeric(tps)
-  tps[is.na(tps)]=-1
-  return(tps)
-}
-animal_metadata$howlongshock = sapply(animal_metadata$howlongshock,parse_shocktime)
-animal_metadata$timepoint = parse_timepoint(animal_metadata$ANIRandGroup)
-animal_metadata$controlgroup = as.numeric(
-  grepl("control",animal_metadata$ANIRandGroup,ignore.case = T))
-
-# Analysis of biospecimen data
-specimen_data_path = dmaqc_files[grepl("Specimen.Processing.csv",dmaqc_files)]
-specimen_data = read.csv(specimen_data_path,stringsAsFactors = F)
-# Load the labelid to vialid mapping
-bic_label_ids = read.csv(dmaqc_files[grepl("BIC",dmaqc_files)])
-label2vial = as.character(bic_label_ids$vialLabel)
-names(label2vial) = as.character(bic_label_ids$labelID)
-specimen_data = specimen_data[is.element(specimen_data$labelid,set=names(label2vial)),]
-dim(specimen_data)
-rownames(specimen_data) = label2vial[as.character(specimen_data$labelid)]
-
-# Parse the times and compute the difference between the freeze time and 
-# the collection time
-time_to_freeze1 = as.difftime(specimen_data$t_freeze,units = "mins") -
-  as.difftime(specimen_data$t_collection,units="mins")
-# For some samples we have the edta spin time instead of the collection
-# time, use these when there are no other options
-time_to_freeze2 = as.difftime(specimen_data$t_freeze,units = "mins") -
-  as.difftime(specimen_data$t_edtaspin,units="mins")
-time_to_freeze = time_to_freeze1
-# Fill in the NAs by taking the time between the edta spin and the freeze
-table(is.na(time_to_freeze1),is.na(time_to_freeze2))
-time_to_freeze[is.na(time_to_freeze1)] = time_to_freeze2[is.na(time_to_freeze1)]
-specimen_data$time_to_freeze = as.numeric(time_to_freeze)
-# hist(specimen_data$time_to_freeze,breaks=100)
-# print("Histogram of freeze times, computed from the DMAQC data")
-
 # Read the gene expression data in
 site2fpkm = list()
 site2counts = list()
@@ -124,13 +61,20 @@ for(site in names(site2fpkm_path)){
   site2counts[[site]] = currcounts
 }
 
-# # Some tests - need to make sure all metadata has the same info
-# length(intersect(as.character(bic_label_ids$vialLabel),rnaseq_meta$vial_label))
-# setdiff(rnaseq_meta$vial_label,as.character(bic_label_ids$vialLabel))
-# # As of June 2019: ignore the biospecimen data and move on with the animal data
-# test_bid = intersect(rnaseq_meta$BID,specimen_data$bid)[1]
-# rnaseq_meta$vial_label[grepl(test_bid,rnaseq_meta$vial_label)]
-# specimen_data$labelid[grepl(test_bid,specimen_data$labelid)]
+# Metadata from DMAQC: use our merged data frame
+system(paste("~/google-cloud-sdk/bin/gsutil",
+             "cp gs://bic_data_analysis/pass1a/pheno_dmaqc/merged_dmaqc_data.RData",
+             "."))
+load("merged_dmaqc_data.RData")
+system("rm merged_dmaqc_data.RData")
+# restrict the data frame to vial ids in our RNA-seq data
+print("The following vial ids are not in the DMAQC data:")
+print(setdiff(rownames(rnaseq_meta),merged_dmaqc_data$viallabel))
+merged_dmaqc_data = merged_dmaqc_data[
+    is.element(set=rownames(rnaseq_meta),merged_dmaqc_data$viallabel),]
+rownames(merged_dmaqc_data) = as.character(merged_dmaqc_data$viallabel)
+merged_dmaqc_data$tissue = merged_dmaqc_data$sampletypedescription
+
 ```
 
 # PCA plots (all samples)
@@ -181,15 +125,31 @@ fpkm_all = cbind(site2fpkm[[1]],site2fpkm[[2]])
 fpkm_all = log(fpkm_all+1,base=2)
 fpkm_pca = prcomp(t(fpkm_all))
 fpkm_pcax = fpkm_pca$x
+tissue_and_site = rnaseq_meta[rownames(fpkm_pcax),"Tissue"]
+site_info = rnaseq_meta[rownames(fpkm_pcax),"site"]
+tissue_and_site[grepl("gastroc",tissue_and_site) &
+                  site_info == "stanford"] = "gastroc_stanford"
+tissue_and_site[grepl("gastroc",tissue_and_site) &
+                  site_info != "stanford"] = "gastroc_sinai"
 df = data.frame(fpkm_pcax[,1:10],
-                tissue = rnaseq_meta[rownames(fpkm_pcax),"Tissue"],
-                site = rnaseq_meta[rownames(fpkm_pcax),"site"])
-ggplot(df,aes(x=PC1, y=PC2,shape=site, color=tissue)) + 
+                tissue = tissue_and_site,
+                site = site_info)
+scatterplot_colors =  scale_colour_manual(values=c(liver='#FF00FF',
+         gastroc_stanford='#00cd00',
+         gastroc_sinai='#00ee00',
+         kidney='#a020f0',
+         'brown adipose'='#ffa500',
+         'white adipose'='#1e90ff',
+         'paxgene rna'='#ff0000',
+         heart='#40e0d0'))
+ggplot(df,aes(x=PC1, y=PC2,shape=site,color=tissue)) + 
   geom_point(size=2) + ggtitle("PCA using FPKMs: PCs 1 and 2") + 
-  theme(plot.title = element_text(hjust = 0.5))
+  theme(plot.title = element_text(hjust = 0.5)) + 
+  scatterplot_colors
 ggplot(df,aes(x=PC4, y=PC3,shape=site, color=tissue)) + 
   geom_point(size=2) + ggtitle("PCA using FPKMs: PCs 3 and 4") + 
-  theme(plot.title = element_text(hjust = 0.5))
+  theme(plot.title = element_text(hjust = 0.5)) +
+  scatterplot_colors
 
 # Rerun on the reduced matrix
 fpkm_pca = prcomp(t(proc_fpkms),retx = T)
@@ -197,15 +157,16 @@ fpkm_pcax = fpkm_pca$x
 fpkm_pca_proc = prcomp(t(fpkm_all),retx = T)
 fpkm_pca_procx = fpkm_pca_proc$x
 df = data.frame(fpkm_pca_procx[,1:10],
-                tissue = rnaseq_meta[rownames(fpkm_pcax),"Tissue"],
-                site = rnaseq_meta[rownames(fpkm_pcax),"site"])
-ggplot(df,aes(x=PC1, y=PC2,shape=site, color=tissue)) + 
-  geom_point(size=2) + ggtitle("PCA using FPKMs (after filter): PCs 1 and 2") + 
-  theme(plot.title = element_text(hjust = 0.5))
+                tissue = tissue_and_site,
+                site = site_info)
+ggplot(df,aes(x=PC1, y=PC2,shape=site,color=tissue)) + 
+  geom_point(size=2) + ggtitle("PCA using FPKMs: PCs 1 and 2") + 
+  theme(plot.title = element_text(hjust = 0.5)) + 
+  scatterplot_colors
 ggplot(df,aes(x=PC4, y=PC3,shape=site, color=tissue)) + 
-  geom_point(size=2) + ggtitle("PCA using FPKMs (after filter): PCs 3 and 4") + 
-  theme(plot.title = element_text(hjust = 0.5))
-
+  geom_point(size=2) + ggtitle("PCA using FPKMs: PCs 3 and 4") + 
+  theme(plot.title = element_text(hjust = 0.5)) +
+  scatterplot_colors
 ```
 
 ## Normalized counts
@@ -265,9 +226,6 @@ ggplot(df,aes(x=PC1, y=PC2,shape=site, color=tissue)) +
 Here we take each tissue and analyze its samples. We quantile normalize the data and run PCA. For the top principal components (5) we compute their association with the RNA-seq qc scores or information collected about the rats. For the latter we use sex, weight, achieved distances, and shock time during the experiment. Note that all of these scores are highly correlated. Below we perform a simple Spearman correlation-based analysis. We can later recompute the associations after proper adjustments.
 
 ```{r,fig.align="center",out.height='40%',out.width='40%',message=FALSE,warning=FALSE}
-library(corrplot)
-# load some auxiliary functions for association analysis
-source("/Users/David/Desktop/repos/motrpac/tools/association_analysis_functions.R")
 # RNA-seq meta to correlate with genes/pcs
 assay_cols_for_qc_analysis = c("RIN","reads","pct_GC","pct_rRNA","pct_globin",
                       "pct_umi_dup","median_5_3_bias","pct_trimmed_bases",
@@ -275,7 +233,8 @@ assay_cols_for_qc_analysis = c("RIN","reads","pct_GC","pct_rRNA","pct_globin",
 # Animal information to correlate with genes/pcs
 # FUTURE WORK: add site id and batch
 animal_data_cols_for_qc_analysis = c(
-  "weight","sex","distance","howlongshock","timepoint")
+  "Acute.test_weight","Animal.Registration_sex","Acute.test_distance",
+  "Acute.test_howlongshock","timepoint")
 # Labels for separating the data by site and tissue
 rnaseq_meta_batchs = unique(rnaseq_meta[,c("GET_site","Tissue")])
 
@@ -290,7 +249,6 @@ for(i in 1:nrow(rnaseq_meta_batchs)){
   # For rat data, take samples whose label id starts with "9"
   curr_samples = curr_samples[grepl("^9",curr_samples)]
   curr_data = process_fpkm1(fpkm_all[,curr_samples])
-  curr_pids = as.character(rnaseq_meta[curr_samples,"PID"])
   curr_data = run_quantile_normalization(curr_data)
   curr_pca = prcomp(t(curr_data))
   curr_pcax = curr_pca$x[,1:5]
@@ -310,10 +268,9 @@ for(i in 1:nrow(rnaseq_meta_batchs)){
   colnames(qc_scores_results) = c("Tissue","CAS_site","PC",
                                   "qc_metric","rho(spearman)","p-value")
   
-  curr_meta2 = animal_metadata[curr_pids,animal_data_cols_for_qc_analysis]
-  rownames(curr_meta2) = curr_samples
+  curr_meta2 = merged_dmaqc_data[curr_samples,animal_data_cols_for_qc_analysis]
   # Animal analysis: for correlations consider rats with distance >0
-  training_rats = curr_meta2$distance > 0
+  training_rats = curr_meta2$Acute.test_distance > 0
   training_rats_x = curr_pcax[training_rats,]
   training_rats_meta = curr_meta2[training_rats,]
   corrs2 = cor(training_rats_x,training_rats_meta,method="spearman")
@@ -363,7 +320,7 @@ Here is the code for this analysis:
 source("/Users/David/Desktop/repos/motrpac/tools/association_analysis_functions.R")
 Z_cols = c("pct_multimapped","pct_umi_dup",
            "median_5_3_bias","pct_rRNA","Lib_batch_ID")
-clinical_cols = c("sex","timepoint","controlgroup","distance")
+clinical_cols = c("Animal.Registration_sex","timepoint","is_control","Acute.test_distance")
 tissue2diff_analysis_results = list()
 rnaseq_meta_batchs = unique(rnaseq_meta[,c("GET_site","Tissue")])
 for(i in 1:nrow(rnaseq_meta_batchs)){
@@ -376,19 +333,17 @@ for(i in 1:nrow(rnaseq_meta_batchs)){
   curr_data = process_fpkm1(fpkm_all[,curr_samples])
   curr_data = run_quantile_normalization(curr_data)
   curr_data = as.matrix(curr_data)
-  curr_pids = as.character(rnaseq_meta[curr_samples,"PID"])
   curr_meta1 = rnaseq_meta[curr_samples,Z_cols]
-  curr_meta2 = animal_metadata[curr_pids,clinical_cols]
-  rownames(curr_meta2) = rownames(curr_meta1)
+  curr_meta2 = merged_dmaqc_data[curr_samples,clinical_cols]
   tp_poly = poly(curr_meta2$timepoint,degree = 2)
   colnames(tp_poly) = c("time.linear","time.quad")
   X = cbind(curr_meta2,curr_meta1,tp_poly)
   form = y~time.linear + time.quad +
-    sex + pct_multimapped + distance +
+    Animal.Registration_sex + pct_multimapped + Acute.test_distance +
     pct_umi_dup + median_5_3_bias + pct_rRNA
   
   # to exclude the controls before the analysis:
-  non_control_inds = curr_meta2$controlgroup != 1
+  non_control_inds = curr_meta2$is_control
   # hist(X$distance[non_control_inds])
   lm_results = t(apply(curr_data[,non_control_inds],1,
                        lm_wrapper_for_diff_abundance_analysis,
@@ -403,9 +358,14 @@ for(i in 1:nrow(rnaseq_meta_batchs)){
     form=form,
     non_control_inds = non_control_inds
   )
-  save(tissue2diff_analysis_results,
-       file=paste(getwd(),"tissue2diff_analysis_results.RData",sep="/"))
 }
+
+# Save the results to our google bucket
+save(tissue2diff_analysis_results,
+       file="tissue2diff_analysis_results.RData")
+system(paste("~/google-cloud-sdk/bin/gsutil", "cp tissue2diff_analysis_results.RData",
+             "gs://bic_data_analysis/pass1a/rnaseq/"))
+system("rm tissue2diff_analysis_results.RData")
 
 ```
 
