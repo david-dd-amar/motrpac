@@ -832,9 +832,15 @@ cloud}\label{save-the-merged-datasets-in-the-cloud}
 \begin{Highlighting}[]
 \CommentTok{# To see the bucket list}
 \CommentTok{# gsutil ls -p motrpac-portal-dev}
-\KeywordTok{write.table}\NormalTok{(merged_dmaqc_data,}\DataTypeTok{file=}\StringTok{"merged_dmaqc_data.txt"}\NormalTok{,}\DataTypeTok{quote =}\NormalTok{ F,}\DataTypeTok{sep=}\StringTok{"}\CharTok{\textbackslash{}t}\StringTok{"}\NormalTok{,}\DataTypeTok{row.names =}\NormalTok{ F)}
+\KeywordTok{write.table}\NormalTok{(merged_dmaqc_data,}\DataTypeTok{file=}\StringTok{"merged_dmaqc_data.txt"}\NormalTok{,}
+            \DataTypeTok{quote =}\NormalTok{ F,}\DataTypeTok{sep=}\StringTok{"}\CharTok{\textbackslash{}t}\StringTok{"}\NormalTok{,}\DataTypeTok{row.names =}\NormalTok{ F)}
 \KeywordTok{save}\NormalTok{(merged_dmaqc_data,}\DataTypeTok{file=}\StringTok{"merged_dmaqc_data.RData"}\NormalTok{)}
-\KeywordTok{system}\NormalTok{(}\StringTok{"gsutil cp merged_dmaqc_data.txt gs://bic_data_analysis/pass1a/pheno_dmaqc/"}\NormalTok{)}
+\KeywordTok{system}\NormalTok{(}\KeywordTok{paste}\NormalTok{(}\StringTok{"~/google-cloud-sdk/bin/gsutil"}\NormalTok{, }\StringTok{"cp merged_dmaqc_data.txt"}\NormalTok{,}
+             \StringTok{"gs://bic_data_analysis/pass1a/pheno_dmaqc/"}\NormalTok{))}
+\KeywordTok{system}\NormalTok{(}\KeywordTok{paste}\NormalTok{(}\StringTok{"~/google-cloud-sdk/bin/gsutil"}\NormalTok{, }\StringTok{"cp merged_dmaqc_data.RData"}\NormalTok{,}
+             \StringTok{"gs://bic_data_analysis/pass1a/pheno_dmaqc/"}\NormalTok{))}
+\KeywordTok{system}\NormalTok{(}\StringTok{"rm merged_dmaqc_data.txt"}\NormalTok{)}
+\KeywordTok{system}\NormalTok{(}\StringTok{"rm merged_dmaqc_data.RData"}\NormalTok{)}
 \end{Highlighting}
 \end{Shaded}
 
