@@ -25,4 +25,6 @@ Notable useful columns are:
   animal.registration.weight - weight at registration
   columns that start with "calculated.variables": weight and sample time calculated features (e.g., sample freeze time)
 
+BIC's qc and reproducibility report (e.g., that the BIC's version replicated DMAQC's calculated variables) is available at:
+https://github.com/david-dd-amar/motrpac/blob/master/animal_data/pheno_csv_files_analysis.pdf
   
