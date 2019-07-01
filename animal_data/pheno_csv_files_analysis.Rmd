@@ -16,6 +16,17 @@ csv_data = list()
 for(fname in all_csvs){
   csv_data[[fname]] = read.csv(fname,stringsAsFactors = F)
 }# sapply(csv_data,dim) # check the dimensions of the different datasets
+
+# dictionary path
+dmaqc_dict_dir = "/Users/David/Desktop/MoTrPAC/data/pass_1a/dmaqc_pheno/dictionary/"
+all_dict_csvs = list.files(dmaqc_dict_dir,full.names = T) # get all files in dir
+all_dict_csvs = all_dict_csvs[grepl(".csv$",all_dict_csvs)] # make sure we take csv only
+# read all files
+dict_data = list()
+for(fname in all_dict_csvs){
+  dict_data[[fname]] = read.csv(fname,stringsAsFactors = F)
+} 
+#sapply(dict_data,dim)
 ```
 
 # Sanity check: Acute tests basic statistics
@@ -37,7 +48,6 @@ ac_test_data$formatted_test_time = test_times
 Next, we analyze the distances. We illustrate how these are a function of the shocks and sex/weight.
 
 ```{r,fig.align="center",out.height='60%',out.width='60%'}
-
 # convert the shock lengths to numbers (seconds)
 parse_shocktime<-function(x){
   arr = strsplit(x,split=":")[[1]]
@@ -204,35 +214,36 @@ We now use DMAQC's mapping of label ids to vial ids and use it to generate a sin
 
 ```{r}
 # Helper function for merging columns from data2 into data1
+# The function makes sure there is no column duplications when
+# adding information from data2 into data1
 merge_avoid_col_dup<-function(data1,data2,by_col){
   data2_cols = c(by_col,setdiff(colnames(data2),colnames(data1)))
-  return(merge(data1, data2[,data2_cols], by=by_col))
+  res = merge(data1, data2[,data2_cols], by=by_col)
+  return(res)
 }
-# Get the animal data and merge
-merged_animal_data = ac_test_data
-colnames(merged_animal_data) = paste("Acute.test",colnames(merged_animal_data),sep="_")
-colnames(merged_animal_data)[grepl("_pid$",colnames(merged_animal_data))]="pid"
-tmp_ac_data = csv_data[[which(grepl("Animal.Familiarization",names(csv_data)))]]
-colnames(tmp_ac_data) = paste("Animal.Familiarization",colnames(tmp_ac_data),sep="_")
-colnames(tmp_ac_data)[grepl("_pid$",colnames(tmp_ac_data))]="pid"
-merged_animal_data = merge_avoid_col_dup(merged_animal_data,tmp_ac_data,by="pid")
-tmp_ac_data = csv_data[[which(grepl("Animal.Key",names(csv_data)))]]
-colnames(tmp_ac_data) = paste("Animal.Key",colnames(tmp_ac_data),sep="_")
-colnames(tmp_ac_data)[grepl("_pid$",colnames(tmp_ac_data))]="pid"
-merged_animal_data = merge_avoid_col_dup(merged_animal_data,tmp_ac_data,by="pid")
-tmp_ac_data = csv_data[[which(grepl("Animal.Registration",names(csv_data)))]]
-colnames(tmp_ac_data) = paste("Animal.Registration",colnames(tmp_ac_data),sep="_")
-colnames(tmp_ac_data)[grepl("_pid$",colnames(tmp_ac_data))]="pid"
-merged_animal_data = merge_avoid_col_dup(merged_animal_data,tmp_ac_data,by="pid")
-tmp_ac_data = csv_data[[which(grepl("Specimen.Collection",names(csv_data)))]]
-colnames(tmp_ac_data) = paste("Animal.Specimen.Collection",colnames(tmp_ac_data),sep="_")
-colnames(tmp_ac_data)[grepl("_pid$",colnames(tmp_ac_data))]="pid"
-merged_animal_data = merge_avoid_col_dup(merged_animal_data,tmp_ac_data,by="pid")
-
-# Add the biospecimen data and create a large data frame
-# Reread the Spec data, we do not need the extra columns that were added
-spec_data = csv_data[[which(grepl("Specimen.Processing.csv",names(csv_data)))]]
-merged_dmaqc_data = merge(merged_animal_data,spec_data,by="pid")
+# Note that Specimen.Processing is intentionally the last added dataset
+# We merge by PIDs so all data before that are animal-level data
+formnames = c("Acute.Test","Animal.Familiarization",
+              "Animal.Key","Animal.Registration",
+              "Specimen.Collection","Specimen.Processing")
+merged_dmaqc_data = c()
+for(currname in formnames){
+  curr_data = csv_data[[which(grepl(currname,names(csv_data)))]]
+  colnames(curr_data) = paste(currname,colnames(curr_data),sep=".")
+  colnames(curr_data)[grepl(".pid$",colnames(curr_data))]="pid"
+  colnames(curr_data)[grepl(".bid$",colnames(curr_data))]="bid"
+  colnames(curr_data)[grepl(".vialid$",colnames(curr_data))]="vialid"
+  colnames(curr_data)[grepl(".viallabel$",colnames(curr_data))]="viallabel"
+  colnames(curr_data)[grepl(".labelid$",colnames(curr_data))]="labelid"
+  colnames(curr_data) = tolower(colnames(curr_data))
+  by_col = "pid"
+  if(length(merged_dmaqc_data)==0){
+    merged_dmaqc_data = curr_data
+  }
+  else{
+    merged_dmaqc_data = merge_avoid_col_dup(merged_dmaqc_data,curr_data,by_col)
+  }
+}
 print("Merged animal and biospecimen data tables, dim is:")
 print(dim(merged_dmaqc_data))
 
@@ -244,7 +255,7 @@ colnames(mapping_info) = tolower(colnames(mapping_info))
 # Not all samples in the specimen data are necessarily covered in the mapping
 # file. The mapping file contains info only about samples that were shipped
 # to CAS. As can be seen here:
-table(is.element(spec_data$labelid,set=mapping_info$labelid))
+table(is.element(merged_dmaqc_data$labelid,set=mapping_info$labelid))
 # We therefore need to extract the intersection:
 shared_labelids = intersect(merged_dmaqc_data$labelid,mapping_info$labelid)
 merged_dmaqc_data = merged_dmaqc_data[
@@ -255,14 +266,55 @@ print("Merged animal and biospecimen data tables, new dim is:")
 print(dim(merged_dmaqc_data))
 # We also have a many to one mapping from vial ids to labels, we 
 # merge the tables to avoid information loss
-merged_dmaqc_data = merge(merged_dmaqc_data,mapping_info,by="labelid")
+merged_dmaqc_data = merge_avoid_col_dup(merged_dmaqc_data,mapping_info,"labelid")
 print("Merged animal and biospecimen data tables, after adding vialids, new dim is:")
 print(dim(merged_dmaqc_data))
 
-# Sanity and removing doubled columns
-all(merged_dmaqc_data$pid.x == merged_dmaqc_data$pid.y)
-merged_dmaqc_data = merged_dmaqc_data[-which(colnames(merged_dmaqc_data)=="pid.x")]
-colnames(merged_dmaqc_data)[colnames(merged_dmaqc_data)=="pid.y"] = "pid"
+# Now put the dictionary in one file as well
+merged_column_dictionary = c()
+cols_to_take = c("Field.Name","Data.Type","Categorical.Values",
+                 "Categorical.Definitions")
+for(currname in formnames){
+  tmp_dict_data = dict_data[[which(grepl(currname,names(dict_data)))]]
+  tmp_dict_data = tmp_dict_data[,cols_to_take]
+  tmp_dict_data[,1] = paste(currname,tmp_dict_data[,1],sep=".")
+  tmp_dict_data[grepl(".pid$",tmp_dict_data[,1]),1]="pid"
+  tmp_dict_data[grepl(".bid$",tmp_dict_data[,1]),1]="bid"
+  tmp_dict_data[grepl(".labelid$",tmp_dict_data[,1]),1]="labelid"
+  tmp_dict_data[grepl(".vialid$",tmp_dict_data[,1]),1]="vialid"
+  tmp_dict_data[grepl(".viallabel$",tmp_dict_data[,1]),1]="viallabel"
+  tmp_dict_data[,1] = tolower(tmp_dict_data[,1])
+  tmp_dict_data = cbind(tmp_dict_data,rep(currname,nrow(tmp_dict_data)))
+  merged_column_dictionary = rbind(merged_column_dictionary,tmp_dict_data)
+}
+
+# Add the calculated features
+formnames = c(formnames,"Calculated.Variables")
+currname = "Calculated.Variables"
+# Data
+curr_data = csv_data[[which(grepl(currname,names(csv_data)))]]
+colnames(curr_data) = paste(currname,colnames(curr_data),sep=".")
+colnames(curr_data)[grepl(".labelid$",colnames(curr_data))]="labelid"
+colnames(curr_data) = tolower(colnames(curr_data))
+merged_dmaqc_data = merge_avoid_col_dup(merged_dmaqc_data,curr_data,"labelid")
+# Dictionary
+tmp_dict_data = dict_data[[which(grepl(currname,names(dict_data)))]]
+tmp_dict_data = tmp_dict_data[,cols_to_take]
+tmp_dict_data[,1] = paste(currname,tmp_dict_data[,1],sep=".")
+tmp_dict_data[grepl(".pid$",tmp_dict_data[,1]),1]="pid"
+tmp_dict_data[grepl(".bid$",tmp_dict_data[,1]),1]="bid"
+tmp_dict_data[grepl(".labelid$",tmp_dict_data[,1]),1]="labelid"
+tmp_dict_data[,1] = tolower(tmp_dict_data[,1])
+tmp_dict_data = cbind(tmp_dict_data,rep(currname,nrow(tmp_dict_data)))
+merged_column_dictionary = rbind(merged_column_dictionary,tmp_dict_data)
+
+# Final checks of the data
+dim(merged_dmaqc_data)
+merged_column_dictionary = merged_column_dictionary[is.element(
+  merged_column_dictionary[,1],set=colnames(merged_dmaqc_data)
+  ),]
+dim(merged_column_dictionary)
+merged_column_dictionary = unique(merged_column_dictionary)
 ```
 
 # Compare to the DMAQC computed scores
@@ -278,17 +330,19 @@ As requested by Ashley (email from June 7 2019), the following computed fields w
 Below, we show that our merged table and computations in R result in the same numbers.
 
 ```{r, fig.align="center",out.height='90%',out.width='90%'}
-# Read the DMAQC calculated fields
-calc_data_file = all_csvs[grepl("Calculated.V",all_csvs)]
+# Read the DMAQC calculated fields (do not use the prev ones from the merge
+# for an extra QC)
+calc_data_file = all_csvs[grepl("Calculated.Variables",all_csvs)]
 calc_data = read.csv(calc_data_file)
 rownames(calc_data) = calc_data$labelid
 # Extract the relevant columns from our merged dataset
-cols_for_analysis = c("labelid","Acute.test_weight","Animal.Registration_weight",
-                      "Acute.test_endblood","Acute.test_beginblood",
-                      "Animal.Specimen.Collection_t_edtafill","Acute.test_t_complete",
-                      "Animal.Specimen.Collection_t_death","Acute.test_t_complete",
-                      "t_freeze","Acute.test_t_complete")
-#  table(is.element(cols_for_analysis,set=colnames(merged_dmaqc_data))) # sanity
+cols_for_analysis = c("labelid",
+                      "acute.test.weight","animal.registration.weight",
+                      "acute.test.endblood","acute.test.beginblood",
+                      "specimen.collection.t_edtafill","acute.test.t_complete",
+                      "specimen.collection.t_death","acute.test.t_complete",
+                      "specimen.processing.t_freeze","acute.test.t_complete")
+# table(is.element(cols_for_analysis,set=colnames(merged_dmaqc_data))) # sanity
 
 # Go over each score and compare the two versions
 par(mfrow=c(2,3))
@@ -309,11 +363,20 @@ for(j in seq(2,length(cols_for_analysis),by=2)){
   abline(0,1,lty=2)
 }
 
-# As the tests above were successfull, combine the two data frames and save the result
-calc_data = calc_data[,-c(1:2)]
-colnames(calc_data) = paste("Calc.Features",colnames(calc_data),sep="_")
-colnames(calc_data)[grepl("_labelid$",colnames(calc_data))]="labelid"
-merged_dmaqc_data = merge_avoid_col_dup(merged_dmaqc_data,calc_data,by="labelid")
+print("Now go over the columns, but this time take our version from the merged data")
+colnames(calc_data) = tolower(colnames(calc_data))
+par(mfrow=c(2,3))
+for(feature_name in colnames(calc_data)[-c(1:3)]){
+  bic_feature_name = paste("calculated.variables.",feature_name,sep="")
+  bic_version = unique(merged_dmaqc_data[,c("labelid",bic_feature_name)])
+  rownames(bic_version) = as.character(bic_version[,1])
+  dmaqc_version = calc_data[rownames(bic_version),c("labelid",feature_name)]
+  plot(bic_version[,2],dmaqc_version[,2],pch=20,cex=1.2,col="blue",
+       xlab="BICs parsed data",ylab="DMAQC computation",
+       main = colnames(dmaqc_version)[2])
+  abline(0,1,lty=2)
+}
+
 ```
 
 # Correlations with time points
@@ -331,34 +394,39 @@ parse_timepoint<-function(x){
 }
 
 # colnames(merged_dmaqc_data)[grepl("sex",colnames(merged_dmaqc_data))]
-merged_dmaqc_data$timepoint = parse_timepoint(merged_dmaqc_data[,"Animal.Key_ANIRandGroup"])
-merged_dmaqc_data$is_control = grepl("control",
-      merged_dmaqc_data[,"Animal.Key_ANIRandGroup"],ignore.case = T)
+merged_dmaqc_data$animal.key.timepoint = parse_timepoint(
+  merged_dmaqc_data[,"animal.key.anirandgroup"])
+merged_dmaqc_data$animal.key.is_control = grepl("control",
+      merged_dmaqc_data[,"animal.key.anirandgroup"],ignore.case = T)
 
 # Reduce the data by label ids to avoid duplications
-inds = !is.na(merged_dmaqc_data$`Acute.test_howlongshock`)
-df = merged_dmaqc_data[inds,c("bid","Acute.test_distance",
-                              "Acute.test_howlongshock","timepoint",
-                              "Animal.Registration_sex")]
+merged_dmaqc_data$acute.test.howlongshock_seconds = sapply(
+  merged_dmaqc_data$acute.test.howlongshock,
+  parse_shocktime)
+inds = !is.na(merged_dmaqc_data$acute.test.howlongshock_seconds)
+df = merged_dmaqc_data[inds,c("bid","acute.test.distance",
+                              "acute.test.howlongshock_seconds",
+                              "animal.key.timepoint",
+                              "animal.registration.sex")]
 df = unique(df)
-print(paste("Number of bids in the reduced data:",nrow(df)))
+print(paste("Number of bids in the reduced data.",nrow(df)))
 
 # Marginal correlation
-rho = cor(df$`Acute.test_howlongshock`,
-          df$`Acute.test_distance`)
+rho = cor(df$acute.test.howlongshock_seconds,
+          df$acute.test.distance)
 rho = format(rho,digits = 3)
 
 # A simple 2D plot
 ggplot(df,
-       aes(x=`Acute.test_distance`, y=`Acute.test_howlongshock`,
-           shape=as.factor(Animal.Registration_sex), color=as.factor(timepoint))) + 
+       aes(x=`acute.test.distance`, y=acute.test.howlongshock_seconds,
+           shape=as.factor(animal.registration.sex), color=as.factor(animal.key.timepoint))) + 
   geom_point(size=2) + ggtitle(paste("Distance vs. Shock length (+time point), rho=",rho)) + 
   theme(plot.title = element_text(hjust = 0.5))
 
 # Look at the linear regression, do we see a correlation between time
 # and distance?
-dist_lm2 = lm(Acute.test_distance~Acute.test_howlongshock+
-                as.factor(timepoint)+Animal.Registration_sex,data=df)
+dist_lm2 = lm(acute.test.distance~acute.test.howlongshock_seconds+
+                as.factor(animal.key.timepoint)+animal.registration.sex,data=df)
 print("No significant linear association between the time points and distance:")
 summary(dist_lm2)
 ```
@@ -371,12 +439,17 @@ summary(dist_lm2)
 write.table(merged_dmaqc_data,file="merged_dmaqc_data.txt",
             quote = F,sep="\t",row.names = F)
 save(merged_dmaqc_data,file="merged_dmaqc_data.RData")
+write.table(merged_column_dictionary,file="merged_column_dictionary.txt",
+            quote = F,sep="\t",row.names = F)
 system(paste("~/google-cloud-sdk/bin/gsutil", "cp merged_dmaqc_data.txt",
              "gs://bic_data_analysis/pass1a/pheno_dmaqc/"))
 system(paste("~/google-cloud-sdk/bin/gsutil", "cp merged_dmaqc_data.RData",
              "gs://bic_data_analysis/pass1a/pheno_dmaqc/"))
+system(paste("~/google-cloud-sdk/bin/gsutil", "cp merged_column_dictionary.txt",
+             "gs://bic_data_analysis/pass1a/pheno_dmaqc/"))
 system("rm merged_dmaqc_data.txt")
 system("rm merged_dmaqc_data.RData")
+system("rm merged_column_dictionary.txt")
 ```
 
 

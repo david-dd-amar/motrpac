@@ -135,6 +135,17 @@
 \ControlFlowTok{for}\NormalTok{(fname }\ControlFlowTok{in}\NormalTok{ all_csvs)\{}
 \NormalTok{  csv_data[[fname]] =}\StringTok{ }\KeywordTok{read.csv}\NormalTok{(fname,}\DataTypeTok{stringsAsFactors =}\NormalTok{ F)}
 \NormalTok{\}}\CommentTok{# sapply(csv_data,dim) # check the dimensions of the different datasets}
+
+\CommentTok{# dictionary path}
+\NormalTok{dmaqc_dict_dir =}\StringTok{ "/Users/David/Desktop/MoTrPAC/data/pass_1a/dmaqc_pheno/dictionary/"}
+\NormalTok{all_dict_csvs =}\StringTok{ }\KeywordTok{list.files}\NormalTok{(dmaqc_dict_dir,}\DataTypeTok{full.names =}\NormalTok{ T) }\CommentTok{# get all files in dir}
+\NormalTok{all_dict_csvs =}\StringTok{ }\NormalTok{all_dict_csvs[}\KeywordTok{grepl}\NormalTok{(}\StringTok{".csv$"}\NormalTok{,all_dict_csvs)] }\CommentTok{# make sure we take csv only}
+\CommentTok{# read all files}
+\NormalTok{dict_data =}\StringTok{ }\KeywordTok{list}\NormalTok{()}
+\ControlFlowTok{for}\NormalTok{(fname }\ControlFlowTok{in}\NormalTok{ all_dict_csvs)\{}
+\NormalTok{  dict_data[[fname]] =}\StringTok{ }\KeywordTok{read.csv}\NormalTok{(fname,}\DataTypeTok{stringsAsFactors =}\NormalTok{ F)}
+\NormalTok{\} }
+\CommentTok{#sapply(dict_data,dim)}
 \end{Highlighting}
 \end{Shaded}
 
@@ -503,35 +514,36 @@ generate a single metadata table that we can share with other sites.
 \begin{Shaded}
 \begin{Highlighting}[]
 \CommentTok{# Helper function for merging columns from data2 into data1}
+\CommentTok{# The function makes sure there is no column duplications when}
+\CommentTok{# adding information from data2 into data1}
 \NormalTok{merge_avoid_col_dup<-}\ControlFlowTok{function}\NormalTok{(data1,data2,by_col)\{}
 \NormalTok{  data2_cols =}\StringTok{ }\KeywordTok{c}\NormalTok{(by_col,}\KeywordTok{setdiff}\NormalTok{(}\KeywordTok{colnames}\NormalTok{(data2),}\KeywordTok{colnames}\NormalTok{(data1)))}
-  \KeywordTok{return}\NormalTok{(}\KeywordTok{merge}\NormalTok{(data1, data2[,data2_cols], }\DataTypeTok{by=}\NormalTok{by_col))}
+\NormalTok{  res =}\StringTok{ }\KeywordTok{merge}\NormalTok{(data1, data2[,data2_cols], }\DataTypeTok{by=}\NormalTok{by_col)}
+  \KeywordTok{return}\NormalTok{(res)}
 \NormalTok{\}}
-\CommentTok{# Get the animal data and merge}
-\NormalTok{merged_animal_data =}\StringTok{ }\NormalTok{ac_test_data}
-\KeywordTok{colnames}\NormalTok{(merged_animal_data) =}\StringTok{ }\KeywordTok{paste}\NormalTok{(}\StringTok{"Acute.test"}\NormalTok{,}\KeywordTok{colnames}\NormalTok{(merged_animal_data),}\DataTypeTok{sep=}\StringTok{"_"}\NormalTok{)}
-\KeywordTok{colnames}\NormalTok{(merged_animal_data)[}\KeywordTok{grepl}\NormalTok{(}\StringTok{"_pid$"}\NormalTok{,}\KeywordTok{colnames}\NormalTok{(merged_animal_data))]=}\StringTok{"pid"}
-\NormalTok{tmp_ac_data =}\StringTok{ }\NormalTok{csv_data[[}\KeywordTok{which}\NormalTok{(}\KeywordTok{grepl}\NormalTok{(}\StringTok{"Animal.Familiarization"}\NormalTok{,}\KeywordTok{names}\NormalTok{(csv_data)))]]}
-\KeywordTok{colnames}\NormalTok{(tmp_ac_data) =}\StringTok{ }\KeywordTok{paste}\NormalTok{(}\StringTok{"Animal.Familiarization"}\NormalTok{,}\KeywordTok{colnames}\NormalTok{(tmp_ac_data),}\DataTypeTok{sep=}\StringTok{"_"}\NormalTok{)}
-\KeywordTok{colnames}\NormalTok{(tmp_ac_data)[}\KeywordTok{grepl}\NormalTok{(}\StringTok{"_pid$"}\NormalTok{,}\KeywordTok{colnames}\NormalTok{(tmp_ac_data))]=}\StringTok{"pid"}
-\NormalTok{merged_animal_data =}\StringTok{ }\KeywordTok{merge_avoid_col_dup}\NormalTok{(merged_animal_data,tmp_ac_data,}\DataTypeTok{by=}\StringTok{"pid"}\NormalTok{)}
-\NormalTok{tmp_ac_data =}\StringTok{ }\NormalTok{csv_data[[}\KeywordTok{which}\NormalTok{(}\KeywordTok{grepl}\NormalTok{(}\StringTok{"Animal.Key"}\NormalTok{,}\KeywordTok{names}\NormalTok{(csv_data)))]]}
-\KeywordTok{colnames}\NormalTok{(tmp_ac_data) =}\StringTok{ }\KeywordTok{paste}\NormalTok{(}\StringTok{"Animal.Key"}\NormalTok{,}\KeywordTok{colnames}\NormalTok{(tmp_ac_data),}\DataTypeTok{sep=}\StringTok{"_"}\NormalTok{)}
-\KeywordTok{colnames}\NormalTok{(tmp_ac_data)[}\KeywordTok{grepl}\NormalTok{(}\StringTok{"_pid$"}\NormalTok{,}\KeywordTok{colnames}\NormalTok{(tmp_ac_data))]=}\StringTok{"pid"}
-\NormalTok{merged_animal_data =}\StringTok{ }\KeywordTok{merge_avoid_col_dup}\NormalTok{(merged_animal_data,tmp_ac_data,}\DataTypeTok{by=}\StringTok{"pid"}\NormalTok{)}
-\NormalTok{tmp_ac_data =}\StringTok{ }\NormalTok{csv_data[[}\KeywordTok{which}\NormalTok{(}\KeywordTok{grepl}\NormalTok{(}\StringTok{"Animal.Registration"}\NormalTok{,}\KeywordTok{names}\NormalTok{(csv_data)))]]}
-\KeywordTok{colnames}\NormalTok{(tmp_ac_data) =}\StringTok{ }\KeywordTok{paste}\NormalTok{(}\StringTok{"Animal.Registration"}\NormalTok{,}\KeywordTok{colnames}\NormalTok{(tmp_ac_data),}\DataTypeTok{sep=}\StringTok{"_"}\NormalTok{)}
-\KeywordTok{colnames}\NormalTok{(tmp_ac_data)[}\KeywordTok{grepl}\NormalTok{(}\StringTok{"_pid$"}\NormalTok{,}\KeywordTok{colnames}\NormalTok{(tmp_ac_data))]=}\StringTok{"pid"}
-\NormalTok{merged_animal_data =}\StringTok{ }\KeywordTok{merge_avoid_col_dup}\NormalTok{(merged_animal_data,tmp_ac_data,}\DataTypeTok{by=}\StringTok{"pid"}\NormalTok{)}
-\NormalTok{tmp_ac_data =}\StringTok{ }\NormalTok{csv_data[[}\KeywordTok{which}\NormalTok{(}\KeywordTok{grepl}\NormalTok{(}\StringTok{"Specimen.Collection"}\NormalTok{,}\KeywordTok{names}\NormalTok{(csv_data)))]]}
-\KeywordTok{colnames}\NormalTok{(tmp_ac_data) =}\StringTok{ }\KeywordTok{paste}\NormalTok{(}\StringTok{"Animal.Specimen.Collection"}\NormalTok{,}\KeywordTok{colnames}\NormalTok{(tmp_ac_data),}\DataTypeTok{sep=}\StringTok{"_"}\NormalTok{)}
-\KeywordTok{colnames}\NormalTok{(tmp_ac_data)[}\KeywordTok{grepl}\NormalTok{(}\StringTok{"_pid$"}\NormalTok{,}\KeywordTok{colnames}\NormalTok{(tmp_ac_data))]=}\StringTok{"pid"}
-\NormalTok{merged_animal_data =}\StringTok{ }\KeywordTok{merge_avoid_col_dup}\NormalTok{(merged_animal_data,tmp_ac_data,}\DataTypeTok{by=}\StringTok{"pid"}\NormalTok{)}
-
-\CommentTok{# Add the biospecimen data and create a large data frame}
-\CommentTok{# Reread the Spec data, we do not need the extra columns that were added}
-\NormalTok{spec_data =}\StringTok{ }\NormalTok{csv_data[[}\KeywordTok{which}\NormalTok{(}\KeywordTok{grepl}\NormalTok{(}\StringTok{"Specimen.Processing.csv"}\NormalTok{,}\KeywordTok{names}\NormalTok{(csv_data)))]]}
-\NormalTok{merged_dmaqc_data =}\StringTok{ }\KeywordTok{merge}\NormalTok{(merged_animal_data,spec_data,}\DataTypeTok{by=}\StringTok{"pid"}\NormalTok{)}
+\CommentTok{# Note that Specimen.Processing is intentionally the last added dataset}
+\CommentTok{# We merge by PIDs so all data before that are animal-level data}
+\NormalTok{formnames =}\StringTok{ }\KeywordTok{c}\NormalTok{(}\StringTok{"Acute.Test"}\NormalTok{,}\StringTok{"Animal.Familiarization"}\NormalTok{,}
+              \StringTok{"Animal.Key"}\NormalTok{,}\StringTok{"Animal.Registration"}\NormalTok{,}
+              \StringTok{"Specimen.Collection"}\NormalTok{,}\StringTok{"Specimen.Processing"}\NormalTok{)}
+\NormalTok{merged_dmaqc_data =}\StringTok{ }\KeywordTok{c}\NormalTok{()}
+\ControlFlowTok{for}\NormalTok{(currname }\ControlFlowTok{in}\NormalTok{ formnames)\{}
+\NormalTok{  curr_data =}\StringTok{ }\NormalTok{csv_data[[}\KeywordTok{which}\NormalTok{(}\KeywordTok{grepl}\NormalTok{(currname,}\KeywordTok{names}\NormalTok{(csv_data)))]]}
+  \KeywordTok{colnames}\NormalTok{(curr_data) =}\StringTok{ }\KeywordTok{paste}\NormalTok{(currname,}\KeywordTok{colnames}\NormalTok{(curr_data),}\DataTypeTok{sep=}\StringTok{"."}\NormalTok{)}
+  \KeywordTok{colnames}\NormalTok{(curr_data)[}\KeywordTok{grepl}\NormalTok{(}\StringTok{".pid$"}\NormalTok{,}\KeywordTok{colnames}\NormalTok{(curr_data))]=}\StringTok{"pid"}
+  \KeywordTok{colnames}\NormalTok{(curr_data)[}\KeywordTok{grepl}\NormalTok{(}\StringTok{".bid$"}\NormalTok{,}\KeywordTok{colnames}\NormalTok{(curr_data))]=}\StringTok{"bid"}
+  \KeywordTok{colnames}\NormalTok{(curr_data)[}\KeywordTok{grepl}\NormalTok{(}\StringTok{".vialid$"}\NormalTok{,}\KeywordTok{colnames}\NormalTok{(curr_data))]=}\StringTok{"vialid"}
+  \KeywordTok{colnames}\NormalTok{(curr_data)[}\KeywordTok{grepl}\NormalTok{(}\StringTok{".viallabel$"}\NormalTok{,}\KeywordTok{colnames}\NormalTok{(curr_data))]=}\StringTok{"viallabel"}
+  \KeywordTok{colnames}\NormalTok{(curr_data)[}\KeywordTok{grepl}\NormalTok{(}\StringTok{".labelid$"}\NormalTok{,}\KeywordTok{colnames}\NormalTok{(curr_data))]=}\StringTok{"labelid"}
+  \KeywordTok{colnames}\NormalTok{(curr_data) =}\StringTok{ }\KeywordTok{tolower}\NormalTok{(}\KeywordTok{colnames}\NormalTok{(curr_data))}
+\NormalTok{  by_col =}\StringTok{ "pid"}
+  \ControlFlowTok{if}\NormalTok{(}\KeywordTok{length}\NormalTok{(merged_dmaqc_data)}\OperatorTok{==}\DecValTok{0}\NormalTok{)\{}
+\NormalTok{    merged_dmaqc_data =}\StringTok{ }\NormalTok{curr_data}
+\NormalTok{  \}}
+  \ControlFlowTok{else}\NormalTok{\{}
+\NormalTok{    merged_dmaqc_data =}\StringTok{ }\KeywordTok{merge_avoid_col_dup}\NormalTok{(merged_dmaqc_data,curr_data,by_col)}
+\NormalTok{  \}}
+\NormalTok{\}}
 \KeywordTok{print}\NormalTok{(}\StringTok{"Merged animal and biospecimen data tables, dim is:"}\NormalTok{)}
 \end{Highlighting}
 \end{Shaded}
@@ -547,7 +559,7 @@ generate a single metadata table that we can share with other sites.
 \end{Shaded}
 
 \begin{verbatim}
-## [1] 2699  107
+## [1] 2699  106
 \end{verbatim}
 
 \begin{Shaded}
@@ -560,7 +572,7 @@ generate a single metadata table that we can share with other sites.
 \CommentTok{# Not all samples in the specimen data are necessarily covered in the mapping}
 \CommentTok{# file. The mapping file contains info only about samples that were shipped}
 \CommentTok{# to CAS. As can be seen here:}
-\KeywordTok{table}\NormalTok{(}\KeywordTok{is.element}\NormalTok{(spec_data}\OperatorTok{$}\NormalTok{labelid,}\DataTypeTok{set=}\NormalTok{mapping_info}\OperatorTok{$}\NormalTok{labelid))}
+\KeywordTok{table}\NormalTok{(}\KeywordTok{is.element}\NormalTok{(merged_dmaqc_data}\OperatorTok{$}\NormalTok{labelid,}\DataTypeTok{set=}\NormalTok{mapping_info}\OperatorTok{$}\NormalTok{labelid))}
 \end{Highlighting}
 \end{Shaded}
 
@@ -593,14 +605,14 @@ generate a single metadata table that we can share with other sites.
 \end{Shaded}
 
 \begin{verbatim}
-## [1] 1638  107
+## [1] 1638  106
 \end{verbatim}
 
 \begin{Shaded}
 \begin{Highlighting}[]
 \CommentTok{# We also have a many to one mapping from vial ids to labels, we }
 \CommentTok{# merge the tables to avoid information loss}
-\NormalTok{merged_dmaqc_data =}\StringTok{ }\KeywordTok{merge}\NormalTok{(merged_dmaqc_data,mapping_info,}\DataTypeTok{by=}\StringTok{"labelid"}\NormalTok{)}
+\NormalTok{merged_dmaqc_data =}\StringTok{ }\KeywordTok{merge_avoid_col_dup}\NormalTok{(merged_dmaqc_data,mapping_info,}\StringTok{"labelid"}\NormalTok{)}
 \KeywordTok{print}\NormalTok{(}\StringTok{"Merged animal and biospecimen data tables, after adding vialids, new dim is:"}\NormalTok{)}
 \end{Highlighting}
 \end{Shaded}
@@ -616,24 +628,74 @@ generate a single metadata table that we can share with other sites.
 \end{Shaded}
 
 \begin{verbatim}
-## [1] 8616  111
+## [1] 8616  109
 \end{verbatim}
 
 \begin{Shaded}
 \begin{Highlighting}[]
-\CommentTok{# Sanity and removing doubled columns}
-\KeywordTok{all}\NormalTok{(merged_dmaqc_data}\OperatorTok{$}\NormalTok{pid.x }\OperatorTok{==}\StringTok{ }\NormalTok{merged_dmaqc_data}\OperatorTok{$}\NormalTok{pid.y)}
+\CommentTok{# Now put the dictionary in one file as well}
+\NormalTok{merged_column_dictionary =}\StringTok{ }\KeywordTok{c}\NormalTok{()}
+\NormalTok{cols_to_take =}\StringTok{ }\KeywordTok{c}\NormalTok{(}\StringTok{"Field.Name"}\NormalTok{,}\StringTok{"Data.Type"}\NormalTok{,}\StringTok{"Categorical.Values"}\NormalTok{,}
+                 \StringTok{"Categorical.Definitions"}\NormalTok{)}
+\ControlFlowTok{for}\NormalTok{(currname }\ControlFlowTok{in}\NormalTok{ formnames)\{}
+\NormalTok{  tmp_dict_data =}\StringTok{ }\NormalTok{dict_data[[}\KeywordTok{which}\NormalTok{(}\KeywordTok{grepl}\NormalTok{(currname,}\KeywordTok{names}\NormalTok{(dict_data)))]]}
+\NormalTok{  tmp_dict_data =}\StringTok{ }\NormalTok{tmp_dict_data[,cols_to_take]}
+\NormalTok{  tmp_dict_data[,}\DecValTok{1}\NormalTok{] =}\StringTok{ }\KeywordTok{paste}\NormalTok{(currname,tmp_dict_data[,}\DecValTok{1}\NormalTok{],}\DataTypeTok{sep=}\StringTok{"."}\NormalTok{)}
+\NormalTok{  tmp_dict_data[}\KeywordTok{grepl}\NormalTok{(}\StringTok{".pid$"}\NormalTok{,tmp_dict_data[,}\DecValTok{1}\NormalTok{]),}\DecValTok{1}\NormalTok{]=}\StringTok{"pid"}
+\NormalTok{  tmp_dict_data[}\KeywordTok{grepl}\NormalTok{(}\StringTok{".bid$"}\NormalTok{,tmp_dict_data[,}\DecValTok{1}\NormalTok{]),}\DecValTok{1}\NormalTok{]=}\StringTok{"bid"}
+\NormalTok{  tmp_dict_data[}\KeywordTok{grepl}\NormalTok{(}\StringTok{".labelid$"}\NormalTok{,tmp_dict_data[,}\DecValTok{1}\NormalTok{]),}\DecValTok{1}\NormalTok{]=}\StringTok{"labelid"}
+\NormalTok{  tmp_dict_data[}\KeywordTok{grepl}\NormalTok{(}\StringTok{".vialid$"}\NormalTok{,tmp_dict_data[,}\DecValTok{1}\NormalTok{]),}\DecValTok{1}\NormalTok{]=}\StringTok{"vialid"}
+\NormalTok{  tmp_dict_data[}\KeywordTok{grepl}\NormalTok{(}\StringTok{".viallabel$"}\NormalTok{,tmp_dict_data[,}\DecValTok{1}\NormalTok{]),}\DecValTok{1}\NormalTok{]=}\StringTok{"viallabel"}
+\NormalTok{  tmp_dict_data[,}\DecValTok{1}\NormalTok{] =}\StringTok{ }\KeywordTok{tolower}\NormalTok{(tmp_dict_data[,}\DecValTok{1}\NormalTok{])}
+\NormalTok{  tmp_dict_data =}\StringTok{ }\KeywordTok{cbind}\NormalTok{(tmp_dict_data,}\KeywordTok{rep}\NormalTok{(currname,}\KeywordTok{nrow}\NormalTok{(tmp_dict_data)))}
+\NormalTok{  merged_column_dictionary =}\StringTok{ }\KeywordTok{rbind}\NormalTok{(merged_column_dictionary,tmp_dict_data)}
+\NormalTok{\}}
+
+\CommentTok{# Add the calculated features}
+\NormalTok{formnames =}\StringTok{ }\KeywordTok{c}\NormalTok{(formnames,}\StringTok{"Calculated.Variables"}\NormalTok{)}
+\NormalTok{currname =}\StringTok{ "Calculated.Variables"}
+\CommentTok{# Data}
+\NormalTok{curr_data =}\StringTok{ }\NormalTok{csv_data[[}\KeywordTok{which}\NormalTok{(}\KeywordTok{grepl}\NormalTok{(currname,}\KeywordTok{names}\NormalTok{(csv_data)))]]}
+\KeywordTok{colnames}\NormalTok{(curr_data) =}\StringTok{ }\KeywordTok{paste}\NormalTok{(currname,}\KeywordTok{colnames}\NormalTok{(curr_data),}\DataTypeTok{sep=}\StringTok{"."}\NormalTok{)}
+\KeywordTok{colnames}\NormalTok{(curr_data)[}\KeywordTok{grepl}\NormalTok{(}\StringTok{".labelid$"}\NormalTok{,}\KeywordTok{colnames}\NormalTok{(curr_data))]=}\StringTok{"labelid"}
+\KeywordTok{colnames}\NormalTok{(curr_data) =}\StringTok{ }\KeywordTok{tolower}\NormalTok{(}\KeywordTok{colnames}\NormalTok{(curr_data))}
+\NormalTok{merged_dmaqc_data =}\StringTok{ }\KeywordTok{merge_avoid_col_dup}\NormalTok{(merged_dmaqc_data,curr_data,}\StringTok{"labelid"}\NormalTok{)}
+\CommentTok{# Dictionary}
+\NormalTok{tmp_dict_data =}\StringTok{ }\NormalTok{dict_data[[}\KeywordTok{which}\NormalTok{(}\KeywordTok{grepl}\NormalTok{(currname,}\KeywordTok{names}\NormalTok{(dict_data)))]]}
+\NormalTok{tmp_dict_data =}\StringTok{ }\NormalTok{tmp_dict_data[,cols_to_take]}
+\NormalTok{tmp_dict_data[,}\DecValTok{1}\NormalTok{] =}\StringTok{ }\KeywordTok{paste}\NormalTok{(currname,tmp_dict_data[,}\DecValTok{1}\NormalTok{],}\DataTypeTok{sep=}\StringTok{"."}\NormalTok{)}
+\NormalTok{tmp_dict_data[}\KeywordTok{grepl}\NormalTok{(}\StringTok{".pid$"}\NormalTok{,tmp_dict_data[,}\DecValTok{1}\NormalTok{]),}\DecValTok{1}\NormalTok{]=}\StringTok{"pid"}
+\NormalTok{tmp_dict_data[}\KeywordTok{grepl}\NormalTok{(}\StringTok{".bid$"}\NormalTok{,tmp_dict_data[,}\DecValTok{1}\NormalTok{]),}\DecValTok{1}\NormalTok{]=}\StringTok{"bid"}
+\NormalTok{tmp_dict_data[}\KeywordTok{grepl}\NormalTok{(}\StringTok{".labelid$"}\NormalTok{,tmp_dict_data[,}\DecValTok{1}\NormalTok{]),}\DecValTok{1}\NormalTok{]=}\StringTok{"labelid"}
+\NormalTok{tmp_dict_data[,}\DecValTok{1}\NormalTok{] =}\StringTok{ }\KeywordTok{tolower}\NormalTok{(tmp_dict_data[,}\DecValTok{1}\NormalTok{])}
+\NormalTok{tmp_dict_data =}\StringTok{ }\KeywordTok{cbind}\NormalTok{(tmp_dict_data,}\KeywordTok{rep}\NormalTok{(currname,}\KeywordTok{nrow}\NormalTok{(tmp_dict_data)))}
+\NormalTok{merged_column_dictionary =}\StringTok{ }\KeywordTok{rbind}\NormalTok{(merged_column_dictionary,tmp_dict_data)}
+
+\CommentTok{# Final checks of the data}
+\KeywordTok{dim}\NormalTok{(merged_dmaqc_data)}
 \end{Highlighting}
 \end{Shaded}
 
 \begin{verbatim}
-## [1] TRUE
+## [1] 8616  116
 \end{verbatim}
 
 \begin{Shaded}
 \begin{Highlighting}[]
-\NormalTok{merged_dmaqc_data =}\StringTok{ }\NormalTok{merged_dmaqc_data[}\OperatorTok{-}\KeywordTok{which}\NormalTok{(}\KeywordTok{colnames}\NormalTok{(merged_dmaqc_data)}\OperatorTok{==}\StringTok{"pid.x"}\NormalTok{)]}
-\KeywordTok{colnames}\NormalTok{(merged_dmaqc_data)[}\KeywordTok{colnames}\NormalTok{(merged_dmaqc_data)}\OperatorTok{==}\StringTok{"pid.y"}\NormalTok{] =}\StringTok{ "pid"}
+\NormalTok{merged_column_dictionary =}\StringTok{ }\NormalTok{merged_column_dictionary[}\KeywordTok{is.element}\NormalTok{(}
+\NormalTok{  merged_column_dictionary[,}\DecValTok{1}\NormalTok{],}\DataTypeTok{set=}\KeywordTok{colnames}\NormalTok{(merged_dmaqc_data)}
+\NormalTok{  ),]}
+\KeywordTok{dim}\NormalTok{(merged_column_dictionary)}
+\end{Highlighting}
+\end{Shaded}
+
+\begin{verbatim}
+## [1] 155   5
+\end{verbatim}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\NormalTok{merged_column_dictionary =}\StringTok{ }\KeywordTok{unique}\NormalTok{(merged_column_dictionary)}
 \end{Highlighting}
 \end{Shaded}
 
@@ -669,17 +731,19 @@ same numbers.
 
 \begin{Shaded}
 \begin{Highlighting}[]
-\CommentTok{# Read the DMAQC calculated fields}
-\NormalTok{calc_data_file =}\StringTok{ }\NormalTok{all_csvs[}\KeywordTok{grepl}\NormalTok{(}\StringTok{"Calculated.V"}\NormalTok{,all_csvs)]}
+\CommentTok{# Read the DMAQC calculated fields (do not use the prev ones from the merge}
+\CommentTok{# for an extra QC)}
+\NormalTok{calc_data_file =}\StringTok{ }\NormalTok{all_csvs[}\KeywordTok{grepl}\NormalTok{(}\StringTok{"Calculated.Variables"}\NormalTok{,all_csvs)]}
 \NormalTok{calc_data =}\StringTok{ }\KeywordTok{read.csv}\NormalTok{(calc_data_file)}
 \KeywordTok{rownames}\NormalTok{(calc_data) =}\StringTok{ }\NormalTok{calc_data}\OperatorTok{$}\NormalTok{labelid}
 \CommentTok{# Extract the relevant columns from our merged dataset}
-\NormalTok{cols_for_analysis =}\StringTok{ }\KeywordTok{c}\NormalTok{(}\StringTok{"labelid"}\NormalTok{,}\StringTok{"Acute.test_weight"}\NormalTok{,}\StringTok{"Animal.Registration_weight"}\NormalTok{,}
-                      \StringTok{"Acute.test_endblood"}\NormalTok{,}\StringTok{"Acute.test_beginblood"}\NormalTok{,}
-                      \StringTok{"Animal.Specimen.Collection_t_edtafill"}\NormalTok{,}\StringTok{"Acute.test_t_complete"}\NormalTok{,}
-                      \StringTok{"Animal.Specimen.Collection_t_death"}\NormalTok{,}\StringTok{"Acute.test_t_complete"}\NormalTok{,}
-                      \StringTok{"t_freeze"}\NormalTok{,}\StringTok{"Acute.test_t_complete"}\NormalTok{)}
-\CommentTok{#  table(is.element(cols_for_analysis,set=colnames(merged_dmaqc_data))) # sanity}
+\NormalTok{cols_for_analysis =}\StringTok{ }\KeywordTok{c}\NormalTok{(}\StringTok{"labelid"}\NormalTok{,}
+                      \StringTok{"acute.test.weight"}\NormalTok{,}\StringTok{"animal.registration.weight"}\NormalTok{,}
+                      \StringTok{"acute.test.endblood"}\NormalTok{,}\StringTok{"acute.test.beginblood"}\NormalTok{,}
+                      \StringTok{"specimen.collection.t_edtafill"}\NormalTok{,}\StringTok{"acute.test.t_complete"}\NormalTok{,}
+                      \StringTok{"specimen.collection.t_death"}\NormalTok{,}\StringTok{"acute.test.t_complete"}\NormalTok{,}
+                      \StringTok{"specimen.processing.t_freeze"}\NormalTok{,}\StringTok{"acute.test.t_complete"}\NormalTok{)}
+\CommentTok{# table(is.element(cols_for_analysis,set=colnames(merged_dmaqc_data))) # sanity}
 
 \CommentTok{# Go over each score and compare the two versions}
 \KeywordTok{par}\NormalTok{(}\DataTypeTok{mfrow=}\KeywordTok{c}\NormalTok{(}\DecValTok{2}\NormalTok{,}\DecValTok{3}\NormalTok{))}
@@ -700,15 +764,39 @@ same numbers.
   \KeywordTok{abline}\NormalTok{(}\DecValTok{0}\NormalTok{,}\DecValTok{1}\NormalTok{,}\DataTypeTok{lty=}\DecValTok{2}\NormalTok{)}
 \NormalTok{\}}
 
-\CommentTok{# As the tests above were successfull, combine the two data frames and save the result}
-\NormalTok{calc_data =}\StringTok{ }\NormalTok{calc_data[,}\OperatorTok{-}\KeywordTok{c}\NormalTok{(}\DecValTok{1}\OperatorTok{:}\DecValTok{2}\NormalTok{)]}
-\KeywordTok{colnames}\NormalTok{(calc_data) =}\StringTok{ }\KeywordTok{paste}\NormalTok{(}\StringTok{"Calc.Features"}\NormalTok{,}\KeywordTok{colnames}\NormalTok{(calc_data),}\DataTypeTok{sep=}\StringTok{"_"}\NormalTok{)}
-\KeywordTok{colnames}\NormalTok{(calc_data)[}\KeywordTok{grepl}\NormalTok{(}\StringTok{"_labelid$"}\NormalTok{,}\KeywordTok{colnames}\NormalTok{(calc_data))]=}\StringTok{"labelid"}
-\NormalTok{merged_dmaqc_data =}\StringTok{ }\KeywordTok{merge_avoid_col_dup}\NormalTok{(merged_dmaqc_data,calc_data,}\DataTypeTok{by=}\StringTok{"labelid"}\NormalTok{)}
+\KeywordTok{print}\NormalTok{(}\StringTok{"Now go over the columns, but this time take our version from the merged data"}\NormalTok{)}
+\end{Highlighting}
+\end{Shaded}
+
+\begin{verbatim}
+## [1] "Now go over the columns, but this time take our version from the merged data"
+\end{verbatim}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\KeywordTok{colnames}\NormalTok{(calc_data) =}\StringTok{ }\KeywordTok{tolower}\NormalTok{(}\KeywordTok{colnames}\NormalTok{(calc_data))}
+\KeywordTok{par}\NormalTok{(}\DataTypeTok{mfrow=}\KeywordTok{c}\NormalTok{(}\DecValTok{2}\NormalTok{,}\DecValTok{3}\NormalTok{))}
 \end{Highlighting}
 \end{Shaded}
 
 \begin{center}\includegraphics[width=0.9\linewidth,height=0.9\textheight]{pheno_csv_files_analysis_files/figure-latex/unnamed-chunk-7-1} \end{center}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\ControlFlowTok{for}\NormalTok{(feature_name }\ControlFlowTok{in} \KeywordTok{colnames}\NormalTok{(calc_data)[}\OperatorTok{-}\KeywordTok{c}\NormalTok{(}\DecValTok{1}\OperatorTok{:}\DecValTok{3}\NormalTok{)])\{}
+\NormalTok{  bic_feature_name =}\StringTok{ }\KeywordTok{paste}\NormalTok{(}\StringTok{"calculated.variables."}\NormalTok{,feature_name,}\DataTypeTok{sep=}\StringTok{""}\NormalTok{)}
+\NormalTok{  bic_version =}\StringTok{ }\KeywordTok{unique}\NormalTok{(merged_dmaqc_data[,}\KeywordTok{c}\NormalTok{(}\StringTok{"labelid"}\NormalTok{,bic_feature_name)])}
+  \KeywordTok{rownames}\NormalTok{(bic_version) =}\StringTok{ }\KeywordTok{as.character}\NormalTok{(bic_version[,}\DecValTok{1}\NormalTok{])}
+\NormalTok{  dmaqc_version =}\StringTok{ }\NormalTok{calc_data[}\KeywordTok{rownames}\NormalTok{(bic_version),}\KeywordTok{c}\NormalTok{(}\StringTok{"labelid"}\NormalTok{,feature_name)]}
+  \KeywordTok{plot}\NormalTok{(bic_version[,}\DecValTok{2}\NormalTok{],dmaqc_version[,}\DecValTok{2}\NormalTok{],}\DataTypeTok{pch=}\DecValTok{20}\NormalTok{,}\DataTypeTok{cex=}\FloatTok{1.2}\NormalTok{,}\DataTypeTok{col=}\StringTok{"blue"}\NormalTok{,}
+       \DataTypeTok{xlab=}\StringTok{"BICs parsed data"}\NormalTok{,}\DataTypeTok{ylab=}\StringTok{"DMAQC computation"}\NormalTok{,}
+       \DataTypeTok{main =} \KeywordTok{colnames}\NormalTok{(dmaqc_version)[}\DecValTok{2}\NormalTok{])}
+  \KeywordTok{abline}\NormalTok{(}\DecValTok{0}\NormalTok{,}\DecValTok{1}\NormalTok{,}\DataTypeTok{lty=}\DecValTok{2}\NormalTok{)}
+\NormalTok{\}}
+\end{Highlighting}
+\end{Shaded}
+
+\begin{center}\includegraphics[width=0.9\linewidth,height=0.9\textheight]{pheno_csv_files_analysis_files/figure-latex/unnamed-chunk-7-2} \end{center}
 
 \section{Correlations with time
 points}\label{correlations-with-time-points}
@@ -730,45 +818,50 @@ time point of each animal in the exercise group.
 \NormalTok{\}}
 
 \CommentTok{# colnames(merged_dmaqc_data)[grepl("sex",colnames(merged_dmaqc_data))]}
-\NormalTok{merged_dmaqc_data}\OperatorTok{$}\NormalTok{timepoint =}\StringTok{ }\KeywordTok{parse_timepoint}\NormalTok{(merged_dmaqc_data[,}\StringTok{"Animal.Key_ANIRandGroup"}\NormalTok{])}
+\NormalTok{merged_dmaqc_data}\OperatorTok{$}\NormalTok{animal.key.timepoint =}\StringTok{ }\KeywordTok{parse_timepoint}\NormalTok{(}
+\NormalTok{  merged_dmaqc_data[,}\StringTok{"animal.key.anirandgroup"}\NormalTok{])}
 \end{Highlighting}
 \end{Shaded}
 
 \begin{verbatim}
-## Warning in parse_timepoint(merged_dmaqc_data[, "Animal.Key_ANIRandGroup"]):
+## Warning in parse_timepoint(merged_dmaqc_data[, "animal.key.anirandgroup"]):
 ## NAs introduced by coercion
 \end{verbatim}
 
 \begin{Shaded}
 \begin{Highlighting}[]
-\NormalTok{merged_dmaqc_data}\OperatorTok{$}\NormalTok{is_control =}\StringTok{ }\KeywordTok{grepl}\NormalTok{(}\StringTok{"control"}\NormalTok{,}
-\NormalTok{      merged_dmaqc_data[,}\StringTok{"Animal.Key_ANIRandGroup"}\NormalTok{],}\DataTypeTok{ignore.case =}\NormalTok{ T)}
+\NormalTok{merged_dmaqc_data}\OperatorTok{$}\NormalTok{animal.key.is_control =}\StringTok{ }\KeywordTok{grepl}\NormalTok{(}\StringTok{"control"}\NormalTok{,}
+\NormalTok{      merged_dmaqc_data[,}\StringTok{"animal.key.anirandgroup"}\NormalTok{],}\DataTypeTok{ignore.case =}\NormalTok{ T)}
 
 \CommentTok{# Reduce the data by label ids to avoid duplications}
-\NormalTok{inds =}\StringTok{ }\OperatorTok{!}\KeywordTok{is.na}\NormalTok{(merged_dmaqc_data}\OperatorTok{$}\StringTok{`}\DataTypeTok{Acute.test_howlongshock}\StringTok{`}\NormalTok{)}
-\NormalTok{df =}\StringTok{ }\NormalTok{merged_dmaqc_data[inds,}\KeywordTok{c}\NormalTok{(}\StringTok{"bid"}\NormalTok{,}\StringTok{"Acute.test_distance"}\NormalTok{,}
-                              \StringTok{"Acute.test_howlongshock"}\NormalTok{,}\StringTok{"timepoint"}\NormalTok{,}
-                              \StringTok{"Animal.Registration_sex"}\NormalTok{)]}
+\NormalTok{merged_dmaqc_data}\OperatorTok{$}\NormalTok{acute.test.howlongshock_seconds =}\StringTok{ }\KeywordTok{sapply}\NormalTok{(}
+\NormalTok{  merged_dmaqc_data}\OperatorTok{$}\NormalTok{acute.test.howlongshock,}
+\NormalTok{  parse_shocktime)}
+\NormalTok{inds =}\StringTok{ }\OperatorTok{!}\KeywordTok{is.na}\NormalTok{(merged_dmaqc_data}\OperatorTok{$}\NormalTok{acute.test.howlongshock_seconds)}
+\NormalTok{df =}\StringTok{ }\NormalTok{merged_dmaqc_data[inds,}\KeywordTok{c}\NormalTok{(}\StringTok{"bid"}\NormalTok{,}\StringTok{"acute.test.distance"}\NormalTok{,}
+                              \StringTok{"acute.test.howlongshock_seconds"}\NormalTok{,}
+                              \StringTok{"animal.key.timepoint"}\NormalTok{,}
+                              \StringTok{"animal.registration.sex"}\NormalTok{)]}
 \NormalTok{df =}\StringTok{ }\KeywordTok{unique}\NormalTok{(df)}
-\KeywordTok{print}\NormalTok{(}\KeywordTok{paste}\NormalTok{(}\StringTok{"Number of bids in the reduced data:"}\NormalTok{,}\KeywordTok{nrow}\NormalTok{(df)))}
+\KeywordTok{print}\NormalTok{(}\KeywordTok{paste}\NormalTok{(}\StringTok{"Number of bids in the reduced data."}\NormalTok{,}\KeywordTok{nrow}\NormalTok{(df)))}
 \end{Highlighting}
 \end{Shaded}
 
 \begin{verbatim}
-## [1] "Number of bids in the reduced data: 72"
+## [1] "Number of bids in the reduced data. 72"
 \end{verbatim}
 
 \begin{Shaded}
 \begin{Highlighting}[]
 \CommentTok{# Marginal correlation}
-\NormalTok{rho =}\StringTok{ }\KeywordTok{cor}\NormalTok{(df}\OperatorTok{$}\StringTok{`}\DataTypeTok{Acute.test_howlongshock}\StringTok{`}\NormalTok{,}
-\NormalTok{          df}\OperatorTok{$}\StringTok{`}\DataTypeTok{Acute.test_distance}\StringTok{`}\NormalTok{)}
+\NormalTok{rho =}\StringTok{ }\KeywordTok{cor}\NormalTok{(df}\OperatorTok{$}\NormalTok{acute.test.howlongshock_seconds,}
+\NormalTok{          df}\OperatorTok{$}\NormalTok{acute.test.distance)}
 \NormalTok{rho =}\StringTok{ }\KeywordTok{format}\NormalTok{(rho,}\DataTypeTok{digits =} \DecValTok{3}\NormalTok{)}
 
 \CommentTok{# A simple 2D plot}
 \KeywordTok{ggplot}\NormalTok{(df,}
-       \KeywordTok{aes}\NormalTok{(}\DataTypeTok{x=}\StringTok{`}\DataTypeTok{Acute.test_distance}\StringTok{`}\NormalTok{, }\DataTypeTok{y=}\StringTok{`}\DataTypeTok{Acute.test_howlongshock}\StringTok{`}\NormalTok{,}
-           \DataTypeTok{shape=}\KeywordTok{as.factor}\NormalTok{(Animal.Registration_sex), }\DataTypeTok{color=}\KeywordTok{as.factor}\NormalTok{(timepoint))) }\OperatorTok{+}\StringTok{ }
+       \KeywordTok{aes}\NormalTok{(}\DataTypeTok{x=}\StringTok{`}\DataTypeTok{acute.test.distance}\StringTok{`}\NormalTok{, }\DataTypeTok{y=}\NormalTok{acute.test.howlongshock_seconds,}
+           \DataTypeTok{shape=}\KeywordTok{as.factor}\NormalTok{(animal.registration.sex), }\DataTypeTok{color=}\KeywordTok{as.factor}\NormalTok{(animal.key.timepoint))) }\OperatorTok{+}\StringTok{ }
 \StringTok{  }\KeywordTok{geom_point}\NormalTok{(}\DataTypeTok{size=}\DecValTok{2}\NormalTok{) }\OperatorTok{+}\StringTok{ }\KeywordTok{ggtitle}\NormalTok{(}\KeywordTok{paste}\NormalTok{(}\StringTok{"Distance vs. Shock length (+time point), rho="}\NormalTok{,rho)) }\OperatorTok{+}\StringTok{ }
 \StringTok{  }\KeywordTok{theme}\NormalTok{(}\DataTypeTok{plot.title =} \KeywordTok{element_text}\NormalTok{(}\DataTypeTok{hjust =} \FloatTok{0.5}\NormalTok{))}
 \end{Highlighting}
@@ -780,8 +873,8 @@ time point of each animal in the exercise group.
 \begin{Highlighting}[]
 \CommentTok{# Look at the linear regression, do we see a correlation between time}
 \CommentTok{# and distance?}
-\NormalTok{dist_lm2 =}\StringTok{ }\KeywordTok{lm}\NormalTok{(Acute.test_distance}\OperatorTok{~}\NormalTok{Acute.test_howlongshock}\OperatorTok{+}
-\StringTok{                }\KeywordTok{as.factor}\NormalTok{(timepoint)}\OperatorTok{+}\NormalTok{Animal.Registration_sex,}\DataTypeTok{data=}\NormalTok{df)}
+\NormalTok{dist_lm2 =}\StringTok{ }\KeywordTok{lm}\NormalTok{(acute.test.distance}\OperatorTok{~}\NormalTok{acute.test.howlongshock_seconds}\OperatorTok{+}
+\StringTok{                }\KeywordTok{as.factor}\NormalTok{(animal.key.timepoint)}\OperatorTok{+}\NormalTok{animal.registration.sex,}\DataTypeTok{data=}\NormalTok{df)}
 \KeywordTok{print}\NormalTok{(}\StringTok{"No significant linear association between the time points and distance:"}\NormalTok{)}
 \end{Highlighting}
 \end{Shaded}
@@ -799,24 +892,35 @@ time point of each animal in the exercise group.
 \begin{verbatim}
 ## 
 ## Call:
-## lm(formula = Acute.test_distance ~ Acute.test_howlongshock + 
-##     as.factor(timepoint) + Animal.Registration_sex, data = df)
+## lm(formula = acute.test.distance ~ acute.test.howlongshock_seconds + 
+##     as.factor(animal.key.timepoint) + animal.registration.sex, 
+##     data = df)
 ## 
 ## Residuals:
 ##      Min       1Q   Median       3Q      Max 
 ## -19.7934  -0.4604   0.6045   1.3591   5.7995 
 ## 
 ## Coefficients:
-##                           Estimate Std. Error t value Pr(>|t|)    
-## (Intercept)             562.059277   1.806668 311.103   <2e-16 ***
-## Acute.test_howlongshock  -0.296516   0.003231 -91.770   <2e-16 ***
-## as.factor(timepoint)0.5   1.901423   1.599209   1.189    0.239    
-## as.factor(timepoint)1    -0.134233   1.589311  -0.084    0.933    
-## as.factor(timepoint)4     2.088966   1.595693   1.309    0.195    
-## as.factor(timepoint)7     1.711643   1.947389   0.879    0.383    
-## as.factor(timepoint)24    2.571109   1.591651   1.615    0.111    
-## as.factor(timepoint)48    1.929356   1.971338   0.979    0.331    
-## Animal.Registration_sex -25.134776   0.971100 -25.883   <2e-16 ***
+##                                      Estimate Std. Error t value Pr(>|t|)
+## (Intercept)                        562.059277   1.806668 311.103   <2e-16
+## acute.test.howlongshock_seconds     -0.296516   0.003231 -91.770   <2e-16
+## as.factor(animal.key.timepoint)0.5   1.901423   1.599209   1.189    0.239
+## as.factor(animal.key.timepoint)1    -0.134233   1.589311  -0.084    0.933
+## as.factor(animal.key.timepoint)4     2.088966   1.595693   1.309    0.195
+## as.factor(animal.key.timepoint)7     1.711643   1.947389   0.879    0.383
+## as.factor(animal.key.timepoint)24    2.571109   1.591651   1.615    0.111
+## as.factor(animal.key.timepoint)48    1.929356   1.971338   0.979    0.331
+## animal.registration.sex            -25.134776   0.971100 -25.883   <2e-16
+##                                       
+## (Intercept)                        ***
+## acute.test.howlongshock_seconds    ***
+## as.factor(animal.key.timepoint)0.5    
+## as.factor(animal.key.timepoint)1      
+## as.factor(animal.key.timepoint)4      
+## as.factor(animal.key.timepoint)7      
+## as.factor(animal.key.timepoint)24     
+## as.factor(animal.key.timepoint)48     
+## animal.registration.sex            ***
 ## ---
 ## Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
 ## 
@@ -835,12 +939,17 @@ cloud}\label{save-the-merged-datasets-in-the-cloud}
 \KeywordTok{write.table}\NormalTok{(merged_dmaqc_data,}\DataTypeTok{file=}\StringTok{"merged_dmaqc_data.txt"}\NormalTok{,}
             \DataTypeTok{quote =}\NormalTok{ F,}\DataTypeTok{sep=}\StringTok{"}\CharTok{\textbackslash{}t}\StringTok{"}\NormalTok{,}\DataTypeTok{row.names =}\NormalTok{ F)}
 \KeywordTok{save}\NormalTok{(merged_dmaqc_data,}\DataTypeTok{file=}\StringTok{"merged_dmaqc_data.RData"}\NormalTok{)}
+\KeywordTok{write.table}\NormalTok{(merged_column_dictionary,}\DataTypeTok{file=}\StringTok{"merged_column_dictionary.txt"}\NormalTok{,}
+            \DataTypeTok{quote =}\NormalTok{ F,}\DataTypeTok{sep=}\StringTok{"}\CharTok{\textbackslash{}t}\StringTok{"}\NormalTok{,}\DataTypeTok{row.names =}\NormalTok{ F)}
 \KeywordTok{system}\NormalTok{(}\KeywordTok{paste}\NormalTok{(}\StringTok{"~/google-cloud-sdk/bin/gsutil"}\NormalTok{, }\StringTok{"cp merged_dmaqc_data.txt"}\NormalTok{,}
              \StringTok{"gs://bic_data_analysis/pass1a/pheno_dmaqc/"}\NormalTok{))}
 \KeywordTok{system}\NormalTok{(}\KeywordTok{paste}\NormalTok{(}\StringTok{"~/google-cloud-sdk/bin/gsutil"}\NormalTok{, }\StringTok{"cp merged_dmaqc_data.RData"}\NormalTok{,}
              \StringTok{"gs://bic_data_analysis/pass1a/pheno_dmaqc/"}\NormalTok{))}
+\KeywordTok{system}\NormalTok{(}\KeywordTok{paste}\NormalTok{(}\StringTok{"~/google-cloud-sdk/bin/gsutil"}\NormalTok{, }\StringTok{"cp merged_column_dictionary.txt"}\NormalTok{,}
+             \StringTok{"gs://bic_data_analysis/pass1a/pheno_dmaqc/"}\NormalTok{))}
 \KeywordTok{system}\NormalTok{(}\StringTok{"rm merged_dmaqc_data.txt"}\NormalTok{)}
 \KeywordTok{system}\NormalTok{(}\StringTok{"rm merged_dmaqc_data.RData"}\NormalTok{)}
+\KeywordTok{system}\NormalTok{(}\StringTok{"rm merged_column_dictionary.txt"}\NormalTok{)}
 \end{Highlighting}
 \end{Shaded}
 
