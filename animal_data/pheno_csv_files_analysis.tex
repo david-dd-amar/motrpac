@@ -947,6 +947,10 @@ cloud}\label{save-the-merged-datasets-in-the-cloud}
              \StringTok{"gs://bic_data_analysis/pass1a/pheno_dmaqc/"}\NormalTok{))}
 \KeywordTok{system}\NormalTok{(}\KeywordTok{paste}\NormalTok{(}\StringTok{"~/google-cloud-sdk/bin/gsutil"}\NormalTok{, }\StringTok{"cp merged_column_dictionary.txt"}\NormalTok{,}
              \StringTok{"gs://bic_data_analysis/pass1a/pheno_dmaqc/"}\NormalTok{))}
+\KeywordTok{system}\NormalTok{(}\KeywordTok{paste}\NormalTok{(}\StringTok{"~/google-cloud-sdk/bin/gsutil"}\NormalTok{, }
+             \StringTok{"cp ~/Desktop/repos/motrpac/animal_data/README.txt"}\NormalTok{,}
+             \StringTok{"gs://bic_data_analysis/pass1a/pheno_dmaqc/"}\NormalTok{))}
+
 \KeywordTok{system}\NormalTok{(}\StringTok{"rm merged_dmaqc_data.txt"}\NormalTok{)}
 \KeywordTok{system}\NormalTok{(}\StringTok{"rm merged_dmaqc_data.RData"}\NormalTok{)}
 \KeywordTok{system}\NormalTok{(}\StringTok{"rm merged_column_dictionary.txt"}\NormalTok{)}

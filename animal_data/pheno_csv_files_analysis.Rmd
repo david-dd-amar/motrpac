@@ -447,6 +447,10 @@ system(paste("~/google-cloud-sdk/bin/gsutil", "cp merged_dmaqc_data.RData",
              "gs://bic_data_analysis/pass1a/pheno_dmaqc/"))
 system(paste("~/google-cloud-sdk/bin/gsutil", "cp merged_column_dictionary.txt",
              "gs://bic_data_analysis/pass1a/pheno_dmaqc/"))
+system(paste("~/google-cloud-sdk/bin/gsutil", 
+             "cp ~/Desktop/repos/motrpac/animal_data/README.txt",
+             "gs://bic_data_analysis/pass1a/pheno_dmaqc/"))
+
 system("rm merged_dmaqc_data.txt")
 system("rm merged_dmaqc_data.RData")
 system("rm merged_column_dictionary.txt")
