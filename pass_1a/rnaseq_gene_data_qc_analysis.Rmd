@@ -21,8 +21,12 @@ library(data.table);library(DESeq2)
 library(preprocessCore);library(ggplot2)
 library(corrplot)
 # load our helper functions
-source("https://raw.githubusercontent.com/david-dd-amar/motrpac/master/tools/preprocessing_helper_functions.R")
-source("https://raw.githubusercontent.com/david-dd-amar/motrpac/master/tools/association_analysis_functions.R")
+source(
+  "https://raw.githubusercontent.com/david-dd-amar/motrpac/master/tools/preprocessing_helper_functions.R"
+  )
+source(
+  "https://raw.githubusercontent.com/david-dd-amar/motrpac/master/tools/association_analysis_functions.R"
+  )
 
 # Data paths
 site2fpkm_path = list(

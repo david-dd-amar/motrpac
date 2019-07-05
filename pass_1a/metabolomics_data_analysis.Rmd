@@ -7,8 +7,9 @@ output:
 ---
 
 In this document we present the joint analysis of the different metabolomics datasets submitted to BIC (currently, as of June 2019). We rely on the following resources for metabolomics-specific issues (in addition to the MOP):
-Gorrochategui et al. (https://www.sciencedirect.com/science/article/pii/S0165993616300425), section 3.2.5 on data intensity normalization. 
+Gorrochategui et al. (https://www.sciencedirect.com/science/article/pii/S0165993616300425), section 3.2.5 on data intensity normalization. Li et al. (https://academic.oup.com/nar/article/45/W1/W162/3835313) for description of normalization tools. 
 
+Briefly, metabolic data are senitive to drift and batch effects, especially in long-term studies. To cope with these issues, studies usually use quality control samples throughout the project for assessing the batches, and internal standards and/or quality control metabolites for normalization. Notable methods here are RUV and CCMN. Downstream normalization is used to either deal with the heteroscedasticity of the metabolite-level data (e.g., Pareto normalization) or to account for sample-to-sample variation (MSTUS, Quantile, Median, etc.).
 
 Load the parsed meta-data (from the cloud), required for all analyses presented here.
 
@@ -23,10 +24,12 @@ system("rm merged_dmaqc_data.RData")
 library(ggplot2);library(reshape2);library(gridExtra)
 
 # load our helper functions
-source("https://raw.githubusercontent.com/david-dd-amar/motrpac/master/tools/preprocessing_helper_functions.R")
+source(
+"https://raw.githubusercontent.com/david-dd-amar/motrpac/master/tools/preprocessing_helper_functions.R"
+)
 ```
 
-# Untrageted data from Broad
+# Untrgeted data from Broad
 
 Unfortunately, as of June 2019, we do not have batch or qc metrics info with this submission.
 Load the data:
@@ -43,8 +46,9 @@ sample_info = read.delim(paste(broad_dir,sample_info_file,sep=""),check.names = 
 broad_meta = merged_dmaqc_data[is.element(
   set=colnames(raw_data_broad),merged_dmaqc_data$viallabel),]
 rownames(broad_meta) = broad_meta$viallabel
+broad_meta$tissue = broad_meta$specimen.processing.sampletypedescription
 print("Broad untargeted data loaded, the represented samples are:")
-print(table(broad_meta$sampletypedescription))
+print(table(broad_meta$tissue))
 ```
 
 ## PCA plots
@@ -57,7 +61,7 @@ raw_data_for_pca[is.na(raw_data_for_pca)] = 0
 raw_broad_data_pca = prcomp(t(raw_data_for_pca))
 raw_broad_data_pca = raw_broad_data_pca$x
 df = data.frame(raw_broad_data_pca[,1:10],
-                tissue = broad_meta[,"sampletypedescription"])
+                tissue = broad_meta[,"tissue"])
 ggplot(df,aes(x=PC1, y=PC2, color=tissue)) + 
   geom_point(size=2) + ggtitle("PCA, raw untargeted Broad data: PCs 1 and 2") + 
   theme(plot.title = element_text(hjust = 0.5))
@@ -71,10 +75,10 @@ Here we go over the data from each tissue, ignoring the reference/control sample
 par(mfrow=c(1,2))
 tissue2filtered_data = list()
 # bxplots = list()
-for (tissue in unique(broad_meta$sampletypedescription)){
+for (tissue in unique(broad_meta$tissue)){
   print(paste("--- Analyzing data of tissue:",tissue))
   curr_vialids = as.character(
-    broad_meta$viallabel[broad_meta$sampletypedescription==tissue])
+    broad_meta$viallabel[broad_meta$tissue==tissue])
   tissue_data = raw_data_broad[,curr_vialids]
   print(paste("numnber of NAs (zeroed)",sum(is.na(tissue_data))))
   tissue_data[is.na(tissue_data)] = 0
@@ -82,19 +86,108 @@ for (tissue in unique(broad_meta$sampletypedescription)){
   print(paste("excluded rows with zero variance",sum(apply(tissue_data,1,sd)==0)))
   tissue_data = tissue_data[!apply(tissue_data==0,1,all),]
   
-  boxplot(tissue_data[,1:10],main=tissue,names=NULL,labels=NULL)
   tissue_data = run_quantile_normalization(tissue_data)
-  tissue2filtered_data[[tissue]] = tissue_data
+  boxplot(tissue_data[,1:10],main=tissue,names=NULL,labels=NULL)
+  tissue2filtered_data[[paste("broad",tissue,sep=";")]] = tissue_data
   
-  # Comment out: ggplot is too much for this simple plot...
-  # bxplots[[tissue]]=ggplot(data = melt(tissue_data[,1:10]), aes(x=variable, y=value)) + 
-  #   geom_boxplot() +
-  #   theme(axis.text.x = element_text(angle = 45,size=10))+
-  #   ggtitle(tissue)+
-  #   theme(plot.title = element_text(hjust = 0.5,size=14))
 }
 ```
 
+
+
+
+# Targeted data from Duke
+
+```{r}
+duke_dir = "/Users/David/Desktop/MoTrPAC/data/pass_1a/metabolomics/targeted_duke/"
+data_matrix_file = "duke_pass1a_processed_combined_wide.txt"
+raw_data_duke = read.delim(paste(duke_dir,data_matrix_file,sep=""),check.names = F,
+                            stringsAsFactors = F)
+sample_info_file = "duke_pass1a_tissue_info.txt"
+sample_info = read.delim(paste(duke_dir,sample_info_file,sep=""),check.names = F,
+                            stringsAsFactors = F)
+# get the samples data using the vial ids:
+duke_meta = merged_dmaqc_data[is.element(
+  set=colnames(raw_data_duke),merged_dmaqc_data$viallabel),]
+rownames(duke_meta) = duke_meta$viallabel
+duke_meta$tissue = duke_meta$specimen.processing.sampletypedescription
+print("Duke targeted data loaded, the represented samples are:")
+print(table(duke_meta$tissue))
+```
+
+## PCA plots
+We start with the most basic analysis: a simple PCA plot, colored by tissue.
+
+```{r}
+raw_data_for_pca = raw_data_duke[,rownames(duke_meta)]
+raw_data_for_pca = log(raw_data_for_pca+1,base=2)
+raw_data_for_pca[is.na(raw_data_for_pca)] = 0
+raw_broad_data_pca = prcomp(t(raw_data_for_pca))
+raw_broad_data_pca = raw_broad_data_pca$x
+df = data.frame(raw_broad_data_pca[,1:10],
+                tissue = broad_meta[,"tissue"])
+ggplot(df,aes(x=PC1, y=PC2, color=tissue)) + 
+  geom_point(size=2) + ggtitle("PCA, raw targeted Duke data: PCs 1 and 2") + 
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+## Sanity check: abundance data distribution
+
+Here we go over the data from each tissue, ignoring the reference/control samples for now (as we do not have the batch data). We treat NAs as unmeasured metabolites (a value of 0), and remove rows with zero variance.
+
+```{r, fig.align="center",out.height='50%',out.width='80%'}
+par(mfrow=c(1,2))
+# bxplots = list()
+for (tissue in unique(duke_meta$tissue)){
+  print(paste("--- Analyzing data of tissue:",tissue))
+  curr_vialids = as.character(
+    duke_meta$viallabel[duke_meta$tissue==tissue])
+  tissue_data = raw_data_duke[,curr_vialids]
+  print(paste("numnber of NAs (zeroed)",sum(is.na(tissue_data))))
+  tissue_data[is.na(tissue_data)] = 0
+  tissue_data = log(tissue_data+1,base=2)
+  print(paste("excluded rows with zero variance",sum(apply(tissue_data,1,sd)==0)))
+  tissue_data = tissue_data[!apply(tissue_data==0,1,all),]
+  
+  # tissue_data = run_quantile_normalization(tissue_data)
+  boxplot(tissue_data[,1:10],main=tissue,names=NULL,labels=NULL)
+  tissue2filtered_data[[paste("duke",tissue,sep=";")]] = tissue_data
+  
+}
+```
+
+# Targeted vs untargeted
+```{r, fig.align="center",out.height='50%',out.width='80%'}
+names(tissue2filtered_data)
+for (tissue in unique(duke_meta$tissue)){
+  x1 = tissue2filtered_data[[paste("duke",tissue,sep=";")]]
+  x1_meta = merged_dmaqc_data[
+    is.element(merged_dmaqc_data$viallabel,set=colnames(x1)),]
+  rownames(x1_meta) = x1_meta$viallabel
+  x1_meta = x1_meta[colnames(x1),]
+  x2 = tissue2filtered_data[[paste("broad",tissue,sep=";")]]
+  x2_meta = merged_dmaqc_data[
+    is.element(merged_dmaqc_data$viallabel,set=colnames(x2)),]
+  rownames(x2_meta) = x2_meta$viallabel
+  x2_meta = x2_meta[colnames(x2),]
+  
+  colnames(x1) = x1_meta$bid
+  colnames(x2) = x2_meta$bid
+  x1 = x1[,colnames(x2)]
+  
+  x1_pca =  prcomp(t(x1))$x[,1:20]
+  x2_pca =  prcomp(t(x2))$x[,1:20]
+  
+  for(j in 1:20){
+    lm_model = summary(lm(x2_pca[,j]~x1_pca))
+    print(lm_model$r.squared)
+  }
+  
+  length(intersect(x1_meta$bid,x2_meta$bid))
+}
+```
+
+# TBD: for all datasets
 ## Correlations with meta/pheno data
 
 ## Differential analysis
