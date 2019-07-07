@@ -78,7 +78,6 @@ merged_dmaqc_data = merged_dmaqc_data[
     is.element(set=rownames(rnaseq_meta),merged_dmaqc_data$viallabel),]
 rownames(merged_dmaqc_data) = as.character(merged_dmaqc_data$viallabel)
 merged_dmaqc_data$tissue = merged_dmaqc_data$sampletypedescription
-
 ```
 
 # PCA plots (all samples)
@@ -237,8 +236,8 @@ assay_cols_for_qc_analysis = c("RIN","reads","pct_GC","pct_rRNA","pct_globin",
 # Animal information to correlate with genes/pcs
 # FUTURE WORK: add site id and batch
 animal_data_cols_for_qc_analysis = c(
-  "Acute.test_weight","Animal.Registration_sex","Acute.test_distance",
-  "Acute.test_howlongshock","timepoint")
+  "acute.test.weight","animal.registration.sex","acute.test.distance",
+  "acute.test.howlongshock_seconds","animal.key.timepoint")
 # Labels for separating the data by site and tissue
 rnaseq_meta_batchs = unique(rnaseq_meta[,c("GET_site","Tissue")])
 
@@ -274,7 +273,7 @@ for(i in 1:nrow(rnaseq_meta_batchs)){
   
   curr_meta2 = merged_dmaqc_data[curr_samples,animal_data_cols_for_qc_analysis]
   # Animal analysis: for correlations consider rats with distance >0
-  training_rats = curr_meta2$Acute.test_distance > 0
+  training_rats = curr_meta2$acute.test.distance > 0
   training_rats_x = curr_pcax[training_rats,]
   training_rats_meta = curr_meta2[training_rats,]
   corrs2 = cor(training_rats_x,training_rats_meta,method="spearman")
@@ -324,7 +323,8 @@ Here is the code for this analysis:
 source("/Users/David/Desktop/repos/motrpac/tools/association_analysis_functions.R")
 Z_cols = c("pct_multimapped","pct_umi_dup",
            "median_5_3_bias","pct_rRNA","Lib_batch_ID")
-clinical_cols = c("Animal.Registration_sex","timepoint","is_control","Acute.test_distance")
+clinical_cols = c("animal.registration.sex","animal.key.timepoint",
+                  "animal.key.is_control","acute.test.distance")
 tissue2diff_analysis_results = list()
 rnaseq_meta_batchs = unique(rnaseq_meta[,c("GET_site","Tissue")])
 for(i in 1:nrow(rnaseq_meta_batchs)){
@@ -339,15 +339,15 @@ for(i in 1:nrow(rnaseq_meta_batchs)){
   curr_data = as.matrix(curr_data)
   curr_meta1 = rnaseq_meta[curr_samples,Z_cols]
   curr_meta2 = merged_dmaqc_data[curr_samples,clinical_cols]
-  tp_poly = poly(curr_meta2$timepoint,degree = 2)
+  tp_poly = poly(curr_meta2$animal.key.timepoint,degree = 2)
   colnames(tp_poly) = c("time.linear","time.quad")
   X = cbind(curr_meta2,curr_meta1,tp_poly)
-  form = y~time.linear + time.quad +
-    Animal.Registration_sex + pct_multimapped + Acute.test_distance +
+  form = y ~ time.linear + time.quad +
+    animal.registration.sex + pct_multimapped + acute.test.distance +
     pct_umi_dup + median_5_3_bias + pct_rRNA
   
   # to exclude the controls before the analysis:
-  non_control_inds = curr_meta2$is_control
+  non_control_inds = !curr_meta2$animal.key.is_control
   # hist(X$distance[non_control_inds])
   lm_results = t(apply(curr_data[,non_control_inds],1,
                        lm_wrapper_for_diff_abundance_analysis,
@@ -371,34 +371,70 @@ system(paste("~/google-cloud-sdk/bin/gsutil", "cp tissue2diff_analysis_results.R
              "gs://bic_data_analysis/pass1a/rnaseq/"))
 system("rm tissue2diff_analysis_results.RData")
 
+# Add simple ANOVA
+tissue2diff_analysis_results_anova = list()
+tissue2diff_analysis_results_kw = list()
+for(i in 1:nrow(rnaseq_meta_batchs)){
+  curr_site = rnaseq_meta_batchs[i,1]
+  curr_tissue = rnaseq_meta_batchs[i,2]
+  curr_samples = as.character(rnaseq_meta$vial_label[rnaseq_meta$GET_site==curr_site &
+                                          rnaseq_meta$Tissue==curr_tissue])
+  # For rat data, take samples whose label id starts with "9"
+  curr_samples = curr_samples[grepl("^9",curr_samples)]
+  curr_data = process_fpkm1(fpkm_all[,curr_samples])
+  curr_data = run_quantile_normalization(curr_data)
+  curr_data = as.matrix(curr_data)
+  curr_meta2 = merged_dmaqc_data[curr_samples,clinical_cols]
+  y = curr_meta2$animal.key.timepoint
+  # to exclude the controls before the analysis:
+  non_control_inds = !curr_meta2$animal.key.is_control
+  y = curr_meta2$animal.key.timepoint[non_control_inds]
+  curr_data = curr_data[,non_control_inds]
+  curr_name = paste(curr_tissue,curr_site,sep=",")
+  
+  curr_res1 = apply(curr_data,1,compare_multigroup_means,y = y)
+  curr_res2 = apply(curr_data,1,compare_multigroup_means,
+                    y = y,f = kruskal.test)
+  
+  tissue2diff_analysis_results_anova[[curr_name]] = curr_res1
+  tissue2diff_analysis_results_kw[[curr_name]] = curr_res2
+}
+save(tissue2diff_analysis_results_anova,tissue2diff_analysis_results_kw,
+       file="tissue2diff_analysis_results_simple_univariate.RData")
+system(paste("~/google-cloud-sdk/bin/gsutil", 
+             "cp tissue2diff_analysis_results_simple_univariate.RData",
+             "gs://bic_data_analysis/pass1a/rnaseq/"))
+
+# Add simple Kruskal Wallis
+
+
 ```
 
 We next inspect the results of the analysis. At a first step, we inspect the p-value distributions of the time-associated differential analysis.
 
 ```{r,fig.align="center",out.height='40%',out.width='40%',message=FALSE,warning=FALSE}
 # load precomputed results
-load(paste(getwd(),"tissue2diff_analysis_results.RData",sep="/"))
+system(paste("~/google-cloud-sdk/bin/gsutil", 
+             "cp gs://bic_data_analysis/pass1a/rnaseq/tissue2diff_analysis_results.RData",
+             "."))
+
+load("tissue2diff_analysis_results.RData")
 print("number of analyzed genes in each tissue:")
-print(sapply(tissue2diff_analysis_results,function(x)nrow(x[[1]])))
+print(sapply(tissue2diff_analysis_results,function(x)dim(x[[1]])))
 
 par(mfrow=c(1,2))
 for(curr_name in names(tissue2diff_analysis_results)){
   lm_results = tissue2diff_analysis_results[[curr_name]][[1]]
-  hist(lm_results[,"pval;distance"],
+  distance_col = grepl("sex",colnames(lm_results)) &
+    grepl("pval",colnames(lm_results))
+  time_col = grepl("time.q",colnames(lm_results)) &
+    grepl("pval",colnames(lm_results))
+  hist(lm_results[,distance_col],
        main=paste(curr_name,"distance"),xlab="P-value",
        cex.main = 1)
-  hist(lm_results[,"pval;time.linear"],
+  hist(lm_results[,time_col],
        main=paste(curr_name,"linear trend"),xlab="P-value",
        cex.main=1)
-  # # get the top linear time response gene
-  # ind = which(lm_results[,"pval;time.quad"]==
-  #               min(lm_results[,"pval;time.quad"]))
-  # boxplot(curr_data[ind,non_control_inds]~
-  #           X$timepoint[non_control_inds]+
-  #                         X$sex[non_control_inds],las=2)
-  # boxplot(curr_data[ind,!non_control_inds]~
-  #           X$timepoint[!non_control_inds]+
-  #                         X$sex[!non_control_inds],las=2)
 }
 
 ```

@@ -183,6 +183,10 @@ for (tissue in unique(duke_meta$tissue)){
     print(lm_model$r.squared)
   }
   
+  m1 = t(as.matrix(x1))
+  m2 = t(as.matrix(x2))
+  cca_res = cca(m1,m2)
+  
   length(intersect(x1_meta$bid,x2_meta$bid))
 }
 ```
