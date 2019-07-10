@@ -422,19 +422,24 @@ load("tissue2diff_analysis_results.RData")
 print("number of analyzed genes in each tissue:")
 print(sapply(tissue2diff_analysis_results,function(x)dim(x[[1]])))
 
-par(mfrow=c(1,2))
+par(mfrow=c(1,3))
 for(curr_name in names(tissue2diff_analysis_results)){
   lm_results = tissue2diff_analysis_results[[curr_name]][[1]]
-  distance_col = grepl("sex",colnames(lm_results)) &
+  distance_col = grepl("distance",colnames(lm_results)) &
+    grepl("pval",colnames(lm_results))
+  sex_col = grepl("sex",colnames(lm_results)) &
     grepl("pval",colnames(lm_results))
   time_col = grepl("time.q",colnames(lm_results)) &
     grepl("pval",colnames(lm_results))
-  hist(lm_results[,distance_col],
-       main=paste(curr_name,"distance"),xlab="P-value",
-       cex.main = 1)
   hist(lm_results[,time_col],
        main=paste(curr_name,"linear trend"),xlab="P-value",
        cex.main=1)
+  hist(lm_results[,distance_col],
+       main=paste(curr_name,"distance"),xlab="P-value",
+       cex.main = 1)
+  hist(lm_results[,sex_col],
+       main=paste(curr_name,"sex"),xlab="P-value",
+       cex.main = 1)
 }
 
 ```

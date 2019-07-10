@@ -158,6 +158,14 @@ for (tissue in unique(duke_meta$tissue)){
 
 # Targeted vs untargeted
 ```{r, fig.align="center",out.height='50%',out.width='80%'}
+
+regress_out<-function(x,covs,...){
+  form = x~.
+  d = data.frame(x=x,covs)
+  m = lm(form,data=d,...)
+  return(m$residuals)
+}
+
 names(tissue2filtered_data)
 for (tissue in unique(duke_meta$tissue)){
   x1 = tissue2filtered_data[[paste("duke",tissue,sep=";")]]
@@ -175,19 +183,28 @@ for (tissue in unique(duke_meta$tissue)){
   colnames(x2) = x2_meta$bid
   x1 = x1[,colnames(x2)]
   
-  x1_pca =  prcomp(t(x1))$x[,1:20]
-  x2_pca =  prcomp(t(x2))$x[,1:20]
+  covs1 = x1_meta[,c("animal.registration.sex",
+                     "animal.registration.weight")]
+  covs2 = x2_meta[,c("animal.registration.sex",
+                     "animal.registration.weight")]
+  x1_res = t(apply(x1,1,regress_out,covs=covs1))
+  x2_res = t(apply(x2,1,regress_out,covs=covs2))
+  
+  x1_pca =  prcomp(t(x1_res))$x[,1:20]
+  x2_pca =  prcomp(t(x2_res))$x[,1:20]
   
   for(j in 1:20){
-    lm_model = summary(lm(x2_pca[,j]~x1_pca))
+    lm_model = summary(lm(x1_pca[,j]~x2_pca))
     print(lm_model$r.squared)
   }
   
-  m1 = t(as.matrix(x1))
-  m2 = t(as.matrix(x2))
-  cca_res = cca(m1,m2)
+  m1 = t(as.matrix(x1_res))
+  m2 = t(as.matrix(x2_res))
+  m1 = m1[,apply(m1,2,sd)>0]
+  m2 = m2[,apply(m2,2,sd)>0]
+  cca_res = whitening::scca(m1,m2)
+  cca_res$cor
   
-  length(intersect(x1_meta$bid,x2_meta$bid))
 }
 ```
 
