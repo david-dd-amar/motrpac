@@ -19,199 +19,204 @@ system(paste("~/google-cloud-sdk/bin/gsutil",
              "."))
 load("merged_dmaqc_data.RData")
 system("rm merged_dmaqc_data.RData")
+rownames(merged_dmaqc_data) = as.character(merged_dmaqc_data$viallabel)
 
 # load required libraries
 library(ggplot2);library(reshape2);library(gridExtra)
 
 # load our helper functions
-source(
-"https://raw.githubusercontent.com/david-dd-amar/motrpac/master/tools/preprocessing_helper_functions.R"
-)
+source("~/Desktop/repos/motrpac/tools/preprocessing_helper_functions.R")
+source("~/Desktop/repos/motrpac/tools/gcp_functions.R")
 ```
 
-# Untrgeted data from Broad
-
-Unfortunately, as of June 2019, we do not have batch or qc metrics info with this submission.
-Load the data:
+# Load all datasets
 
 ```{r}
-broad_dir = "/Users/David/Desktop/MoTrPAC/data/pass_1a/metabolomics/broad_untargeted/"
-data_matrix_file = "broad_pass1a_combined_wide.txt"
-raw_data_broad = read.delim(paste(broad_dir,data_matrix_file,sep=""),check.names = F,
-                            stringsAsFactors = F)
-sample_info_file = "broad_pass1a_sampleType.txt"
-sample_info = read.delim(paste(broad_dir,sample_info_file,sep=""),check.names = F,
-                            stringsAsFactors = F)
-# get the samples data using the vial ids:
-broad_meta = merged_dmaqc_data[is.element(
-  set=colnames(raw_data_broad),merged_dmaqc_data$viallabel),]
-rownames(broad_meta) = broad_meta$viallabel
-broad_meta$tissue = broad_meta$specimen.processing.sampletypedescription
-print("Broad untargeted data loaded, the represented samples are:")
-print(table(broad_meta$tissue))
-```
-
-## PCA plots
-We start with the most basic analysis: a simple PCA plot, colored by tissue.
-
-```{r}
-raw_data_for_pca = raw_data_broad[,rownames(broad_meta)]
-raw_data_for_pca = log(raw_data_for_pca+1,base=2)
-raw_data_for_pca[is.na(raw_data_for_pca)] = 0
-raw_broad_data_pca = prcomp(t(raw_data_for_pca))
-raw_broad_data_pca = raw_broad_data_pca$x
-df = data.frame(raw_broad_data_pca[,1:10],
-                tissue = broad_meta[,"tissue"])
-ggplot(df,aes(x=PC1, y=PC2, color=tissue)) + 
-  geom_point(size=2) + ggtitle("PCA, raw untargeted Broad data: PCs 1 and 2") + 
-  theme(plot.title = element_text(hjust = 0.5))
-```
-
-## Sanity check: abundance data distribution
-
-Here we go over the data from each tissue, ignoring the reference/control samples for now (as we do not have the batch data). We treat NAs as unmeasured metabolites (a value of 0), and remove rows with zero variance.
-
-```{r, fig.align="center",out.height='50%',out.width='80%'}
-par(mfrow=c(1,2))
-tissue2filtered_data = list()
-# bxplots = list()
-for (tissue in unique(broad_meta$tissue)){
-  print(paste("--- Analyzing data of tissue:",tissue))
-  curr_vialids = as.character(
-    broad_meta$viallabel[broad_meta$tissue==tissue])
-  tissue_data = raw_data_broad[,curr_vialids]
-  print(paste("numnber of NAs (zeroed)",sum(is.na(tissue_data))))
-  tissue_data[is.na(tissue_data)] = 0
-  tissue_data = log(tissue_data+1,base=2)
-  print(paste("excluded rows with zero variance",sum(apply(tissue_data,1,sd)==0)))
-  tissue_data = tissue_data[!apply(tissue_data==0,1,all),]
-  
-  tissue_data = run_quantile_normalization(tissue_data)
-  boxplot(tissue_data[,1:10],main=tissue,names=NULL,labels=NULL)
-  tissue2filtered_data[[paste("broad",tissue,sep=";")]] = tissue_data
-  
+metabolomics_data_bucket = "gs://bic_data_analysis/pass1a/metabolomics/"
+rdata_files = get_files_in_bucket(metabolomics_data_bucket)
+rdata_files = rdata_files[grepl(".rdata$",rdata_files,ignore.case = T)]
+site_names = c("duke","mayo","broad")
+for(site in site_names){
+  inds = grepl(site,rdata_files,ignore.case = T)
+  names(rdata_files)[inds] = site
 }
-```
+rdata_files = gsub(metabolomics_data_bucket,"",rdata_files)
+rdata_objects = sapply(rdata_files,load_from_bucket,bucket=metabolomics_data_bucket,delete=F)
 
+# Separate the datasets by site, tissue, and type (metadata or not)
+raw_abundance_datasets = lapply(rdata_objects,function(x,y)x[grepl(y,names(x))],y="compounds")
+sample_metadata = lapply(rdata_objects,function(x,y)x[grepl(y,names(x))],y="sampleme")
+get_tissue_from_dataset_name<-function(x){return(strsplit(x,split="_")[[1]][2])}
+raw_abundance_datasets_tissues = lapply(raw_abundance_datasets,
+                                    function(x)sapply(names(x),get_tissue_from_dataset_name))
 
-
-
-# Targeted data from Duke
-
-```{r}
-duke_dir = "/Users/David/Desktop/MoTrPAC/data/pass_1a/metabolomics/targeted_duke/"
-data_matrix_file = "duke_pass1a_processed_combined_wide.txt"
-raw_data_duke = read.delim(paste(duke_dir,data_matrix_file,sep=""),check.names = F,
-                            stringsAsFactors = F)
-sample_info_file = "duke_pass1a_tissue_info.txt"
-sample_info = read.delim(paste(duke_dir,sample_info_file,sep=""),check.names = F,
-                            stringsAsFactors = F)
-# get the samples data using the vial ids:
-duke_meta = merged_dmaqc_data[is.element(
-  set=colnames(raw_data_duke),merged_dmaqc_data$viallabel),]
-rownames(duke_meta) = duke_meta$viallabel
-duke_meta$tissue = duke_meta$specimen.processing.sampletypedescription
-print("Duke targeted data loaded, the represented samples are:")
-print(table(duke_meta$tissue))
-```
-
-## PCA plots
-We start with the most basic analysis: a simple PCA plot, colored by tissue.
-
-```{r}
-raw_data_for_pca = raw_data_duke[,rownames(duke_meta)]
-raw_data_for_pca = log(raw_data_for_pca+1,base=2)
-raw_data_for_pca[is.na(raw_data_for_pca)] = 0
-raw_broad_data_pca = prcomp(t(raw_data_for_pca))
-raw_broad_data_pca = raw_broad_data_pca$x
-df = data.frame(raw_broad_data_pca[,1:10],
-                tissue = broad_meta[,"tissue"])
-ggplot(df,aes(x=PC1, y=PC2, color=tissue)) + 
-  geom_point(size=2) + ggtitle("PCA, raw targeted Duke data: PCs 1 and 2") + 
-  theme(plot.title = element_text(hjust = 0.5))
-```
-
-## Sanity check: abundance data distribution
-
-Here we go over the data from each tissue, ignoring the reference/control samples for now (as we do not have the batch data). We treat NAs as unmeasured metabolites (a value of 0), and remove rows with zero variance.
-
-```{r, fig.align="center",out.height='50%',out.width='80%'}
-par(mfrow=c(1,2))
-# bxplots = list()
-for (tissue in unique(duke_meta$tissue)){
-  print(paste("--- Analyzing data of tissue:",tissue))
-  curr_vialids = as.character(
-    duke_meta$viallabel[duke_meta$tissue==tissue])
-  tissue_data = raw_data_duke[,curr_vialids]
-  print(paste("numnber of NAs (zeroed)",sum(is.na(tissue_data))))
-  tissue_data[is.na(tissue_data)] = 0
-  tissue_data = log(tissue_data+1,base=2)
-  print(paste("excluded rows with zero variance",sum(apply(tissue_data,1,sd)==0)))
-  tissue_data = tissue_data[!apply(tissue_data==0,1,all),]
-  
-  # tissue_data = run_quantile_normalization(tissue_data)
-  boxplot(tissue_data[,1:10],main=tissue,names=NULL,labels=NULL)
-  tissue2filtered_data[[paste("duke",tissue,sep=";")]] = tissue_data
-  
-}
-```
-
-# Targeted vs untargeted
-```{r, fig.align="center",out.height='50%',out.width='80%'}
-
-regress_out<-function(x,covs,...){
-  form = x~.
-  d = data.frame(x=x,covs)
-  m = lm(form,data=d,...)
-  return(m$residuals)
-}
-
-names(tissue2filtered_data)
-for (tissue in unique(duke_meta$tissue)){
-  x1 = tissue2filtered_data[[paste("duke",tissue,sep=";")]]
-  x1_meta = merged_dmaqc_data[
-    is.element(merged_dmaqc_data$viallabel,set=colnames(x1)),]
-  rownames(x1_meta) = x1_meta$viallabel
-  x1_meta = x1_meta[colnames(x1),]
-  x2 = tissue2filtered_data[[paste("broad",tissue,sep=";")]]
-  x2_meta = merged_dmaqc_data[
-    is.element(merged_dmaqc_data$viallabel,set=colnames(x2)),]
-  rownames(x2_meta) = x2_meta$viallabel
-  x2_meta = x2_meta[colnames(x2),]
-  
-  colnames(x1) = x1_meta$bid
-  colnames(x2) = x2_meta$bid
-  x1 = x1[,colnames(x2)]
-  
-  covs1 = x1_meta[,c("animal.registration.sex",
-                     "animal.registration.weight")]
-  covs2 = x2_meta[,c("animal.registration.sex",
-                     "animal.registration.weight")]
-  x1_res = t(apply(x1,1,regress_out,covs=covs1))
-  x2_res = t(apply(x2,1,regress_out,covs=covs2))
-  
-  x1_pca =  prcomp(t(x1_res))$x[,1:20]
-  x2_pca =  prcomp(t(x2_res))$x[,1:20]
-  
-  for(j in 1:20){
-    lm_model = summary(lm(x1_pca[,j]~x2_pca))
-    print(lm_model$r.squared)
+# Create datasets for the comparison: remove controls, normalize, fold changes
+# this is a named list of dataset
+# each name has: site,tissue
+# each entry has abundance data, row annot data, control data, sample metadata (optional)
+metabolomics_parsed_datasets = list()
+for(site in names(raw_abundance_datasets)){
+  is_untargeted = site == "broad"
+  for(tissue in names(raw_abundance_datasets[[site]])){
+    d = raw_abundance_datasets[[site]][[tissue]]
+    sample_meta = sample_metadata[[site]][[tissue]]
+    tissue_name = get_tissue_from_dataset_name(tissue)
+    if(is_untargeted){
+      row_annot = d[,1:8]
+      d = d[-c(1:8)]
+    }
+    else{
+      row_annot = d[,1:2]
+      d = d[-c(1:2)]
+    }
+    
+    d[is.na(d)] = 0
+    d = log(d+1,base=2)
+    d = d[apply(d,1,sd)>0,]
+    
+    control_columns = !is.element(colnames(d),set=merged_dmaqc_data$viallabel)
+    control_data = d[,control_columns]
+    d  = d[,!control_columns]
+    
+    # if site is broad then quantile normalize
+    if(is_untargeted){
+      d = run_quantile_normalization(d)
+    }
+    
+    print(paste("excluded rows with zero variance",sum(apply(d,1,sd)==0)))
+    rowinds = apply(d,1,sd)>0
+    d = d[rowinds,]
+    row_annot = row_annot[rowinds,]
+    control_data=control_data[rowinds,]
+    
+    # # Compute fold change data vs. the mean pre treatment
+    # curr_time_points = merged_dmaqc_data[colnames(d),"animal.key.timepoint"]
+    # curr_controls = merged_dmaqc_data[colnames(d),"animal.key.is_control"]
+    # raw_group_info = merged_dmaqc_data[colnames(d),"animal.key.anirandgroup"]
+    # curr_sex = merged_dmaqc_data[colnames(d),"animal.registration.sex"]
+    
+    obj_name = paste(site,tissue_name,sep="_")
+    obj = list(sample_data=d,control_data=control_data,
+               row_annot=row_annot,sample_meta=sample_meta)
+    metabolomics_parsed_datasets[[obj_name]] = obj
+    # if(ncol(control_data)>0){hist(cor(d,control_data),main=obj_name)}
   }
-  
-  m1 = t(as.matrix(x1_res))
-  m2 = t(as.matrix(x2_res))
-  m1 = m1[,apply(m1,2,sd)>0]
-  m2 = m2[,apply(m2,2,sd)>0]
-  cca_res = whitening::scca(m1,m2)
-  cca_res$cor
-  
 }
 ```
 
-# TBD: for all datasets
-## Correlations with meta/pheno data
+# Pairwise comparisons
 
-## Differential analysis
+## Using simple correlations
+
+## Using PLS2 regression
+
+```{r,fig.align="center",out.height='60%',out.width='60%'}
+y = metabolomics_parsed_datasets$duke_muscle$sample_data
+x = metabolomics_parsed_datasets$broad_muscle$sample_data
+
+y_vials = colnames(y)
+bid_y = merged_dmaqc_data[colnames(y),"bid"]
+bid_x = merged_dmaqc_data[colnames(x),"bid"]
+table(is.element(bid_y,set=bid_x))
+colnames(x) = bid_x
+colnames(y) = bid_y
+x = x[,colnames(y)] # make x in the same order as y
+x = t(as.matrix(x))
+y = t(as.matrix(y))
+y_pca = prcomp(y)
+plot(y_pca)
+explained_var = y_pca$sdev^2/sum(y_pca$sdev^2)
+y_pca_matrix = y_pca$x[,1:10]
+
+# regress out sex, weight
+cov_cols = c("animal.registration.sex",
+             "acute.test.weight",
+             "acute.test.distance")
+covs = merged_dmaqc_data[y_vials,cov_cols]
+
+get_explained_variance_using_PCA(x,y)
+x = apply(x,2,regress_out,covs=covs)
+y = apply(y,2,regress_out,covs=covs)
+get_explained_variance_using_PCA(x,y)
+
+library(pls)
+library(gplots)
+pls_model = plsr(y_pca_matrix~x,ncomp = 10)
+r2s = pls::R2(pls_model,ncomp=10)$val[1,,]
+plot(explained_var[1:10],r2s[,2])
+
+```
+
+## Using canonical correlations
+```{r,fig.align="center",out.height='60%',out.width='60%'}
+cca_res = whitening::scca(x,y,scale=F,lambda.cor = 0.9)
+ccaX = tcrossprod( x, cca_res$WX)
+ccaY = tcrossprod( y, cca_res$WY)
+
+plot(ccaX[,1],ccaX[,2])
+plot(ccaY[,1],ccaY[,2])
+
+```
+
+## Comparison of covariance matrices
+
+```{r}
+
+# Get all correlation and covariance matrices
+y = metabolomics_parsed_datasets[[1]]$sample_data # anchor all datasets by these ids
+y_vials = colnames(y)
+bid_y = as.character(merged_dmaqc_data[colnames(y),"bid"])
+cov_cols = c("animal.registration.sex",
+             "acute.test.weight",
+             "acute.test.distance")
+covs = merged_dmaqc_data[y_vials,cov_cols]
+
+cov_matrices = list()
+cor_matrices = list()
+for(nn in names(metabolomics_parsed_datasets)){
+  x = metabolomics_parsed_datasets[[nn]]$sample_data
+  bid_x = as.character(merged_dmaqc_data[colnames(x),"bid"])
+  print(sum(!is.element(bid_y,set=bid_x))) # should be zero
+  colnames(x) = bid_x
+  x = x[,bid_y]
+  x = apply(x,1,regress_out,covs=covs)
+  x = t(x)
+  pcax = t(prcomp(t(x),scale. = F)$x[,1:10])
+  cov_matrices[[nn]] = cov(x)
+  cor_matrices[[nn]] = cor(pcax)
+}
+sapply(cor_matrices,dim)
+library('evolqg');library(corrplot)
+mantel_tests= MatrixCor(cor_matrices)
+diag(mantel_tests)=1
+corrplot(mantel_tests,type="lower")
+rs_res = RandomSkewers(cor_matrices)
+corrplot(rs_res$correlations)
+
+library(psych)
+
+r1 = cor_matrices[[1]]
+r2 = cor_matrices[[8]]
+cor(r1[lower.tri(r1)],r2[lower.tri(r2)])
+mantel_tests[1,8]
+mantel_tests[8,1]
+
+threshold_comp = apply_function_on_pairs(cor_matrices,
+          function(x,y)sum(x>0.7&y>0.7))
+corrplot(threshold_comp,is.corr = F,order="hclust")
+
+threshold_comp = apply_function_on_pairs(cor_matrices,
+         function(x,y)mean(diag(cor(x,y))))
+corrplot(threshold_comp,is.corr = F,order="hclust")
+
+```
+
+# Integrarion with RNAseq
+
+# Differential abundance analysis
+
+
+
 
 
 
