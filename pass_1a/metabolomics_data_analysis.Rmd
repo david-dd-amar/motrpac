@@ -41,66 +41,77 @@ for(site in site_names){
   names(rdata_files)[inds] = site
 }
 rdata_files = gsub(metabolomics_data_bucket,"",rdata_files)
-rdata_objects = sapply(rdata_files,load_from_bucket,bucket=metabolomics_data_bucket,delete=T)
+rdata_objects = sapply(rdata_files,load_from_bucket,
+                       bucket=metabolomics_data_bucket,delete=T)
+sapply(rdata_objects,names)
+newl = list()
+for(nn in names(rdata_objects)){
+  for(nn2 in names(rdata_objects[[nn]])){
+    newl[[nn2]] = rdata_objects[[nn]][[nn2]]
+  }
+}
+rdata_objects = newl
 
 # Separate the datasets by site, tissue, and type (metadata or not)
-raw_abundance_datasets = lapply(rdata_objects,function(x,y)x[grepl(y,names(x))],y="compounds")
-sample_metadata = lapply(rdata_objects,function(x,y)x[grepl(y,names(x))],y="sampleme")
+raw_abundance_datasets =  rdata_objects[grepl("comp",names(rdata_objects))]
+names(raw_abundance_datasets) = gsub("_compounds","",names(raw_abundance_datasets))
+sample_metadata = rdata_objects[grepl("sampleme",names(rdata_objects))]
+names(sample_metadata) = gsub("_samplemeta","",names(sample_metadata))
 get_tissue_from_dataset_name<-function(x){return(strsplit(x,split="_")[[1]][2])}
-raw_abundance_datasets_tissues = lapply(raw_abundance_datasets,
-                                    function(x)sapply(names(x),get_tissue_from_dataset_name))
+raw_abundance_datasets_tissues = 
+  sapply(names(raw_abundance_datasets),get_tissue_from_dataset_name)
+get_site_from_dataset_name<-function(x){return(strsplit(x,split="_")[[1]][1])}
+raw_abundance_datasets_sites = 
+  sapply(names(raw_abundance_datasets),get_site_from_dataset_name)
+
 
 # Create datasets for the comparison: remove controls, normalize, fold changes
 # this is a named list of dataset
 # each name has: site,tissue
 # each entry has abundance data, row annot data, control data, sample metadata (optional)
 metabolomics_parsed_datasets = list()
-for(site in names(raw_abundance_datasets)){
+for(dataset in names(raw_abundance_datasets)){
+  site = raw_abundance_datasets_sites[[dataset]]
+  tissue_name = raw_abundance_datasets_tissues[[dataset]]
   is_untargeted = is.element(site,set = c("broad","gtech"))
-  for(tissue in names(raw_abundance_datasets[[site]])){
-    d = raw_abundance_datasets[[site]][[tissue]]
-    sample_meta = sample_metadata[[site]][[tissue]]
-    tissue_name = get_tissue_from_dataset_name(tissue)
-    if(is_untargeted){
-      row_annot = d[,1:8]
-      d = d[-c(1:8)]
-    }
-    else{
-      row_annot = d[,1:2]
-      d = d[-c(1:2)]
-    }
-    
-    d[is.na(d)] = 0
-    d = log(d+1,base=2)
-    d = d[apply(d,1,sd)>0,]
-    
-    control_columns = !is.element(colnames(d),set=merged_dmaqc_data$viallabel)
-    control_data = d[,control_columns]
-    d  = d[,!control_columns]
-    
-    # if site is broad then quantile normalize
-    if(is_untargeted){
-      d = run_quantile_normalization(d)
-    }
-    
-    print(paste("excluded rows with zero variance",sum(apply(d,1,sd)==0)))
-    rowinds = apply(d,1,sd)>0
-    d = d[rowinds,]
-    row_annot = row_annot[rowinds,]
-    control_data=control_data[rowinds,]
-    
-    # # Compute fold change data vs. the mean pre treatment
-    # curr_time_points = merged_dmaqc_data[colnames(d),"animal.key.timepoint"]
-    # curr_controls = merged_dmaqc_data[colnames(d),"animal.key.is_control"]
-    # raw_group_info = merged_dmaqc_data[colnames(d),"animal.key.anirandgroup"]
-    # curr_sex = merged_dmaqc_data[colnames(d),"animal.registration.sex"]
-    
-    obj_name = paste(site,tissue_name,sep="_")
-    obj = list(sample_data=d,control_data=control_data,
-               row_annot=row_annot,sample_meta=sample_meta)
-    metabolomics_parsed_datasets[[obj_name]] = obj
-    # if(ncol(control_data)>0){hist(cor(d,control_data),main=obj_name)}
+  d = raw_abundance_datasets[[dataset]]
+  sample_meta = sample_metadata[[dataset]]
+  if(is_untargeted){
+    row_annot = d[,1:8];d = d[-c(1:8)]
   }
+  else{
+    row_annot = d[,1:2];d = d[-c(1:2)]
+  }
+    
+  d[is.na(d)] = 0
+  d = log(d+1,base=2)
+  d = d[apply(d,1,sd)>0,]
+    
+  control_columns = !is.element(colnames(d),set=merged_dmaqc_data$viallabel)
+  control_data = d[,control_columns]
+  d  = d[,!control_columns]
+    
+  # if site is broad then quantile normalize
+  if(is_untargeted){
+    d = run_quantile_normalization(d)
+  }
+    
+  print(paste("excluded rows with zero variance",sum(apply(d,1,sd)==0)))
+  rowinds = apply(d,1,sd)>0
+  d = d[rowinds,]
+  row_annot = row_annot[rowinds,]
+  control_data=control_data[rowinds,]
+    
+  # # Compute fold change data vs. the mean pre treatment
+  # curr_time_points = merged_dmaqc_data[colnames(d),"animal.key.timepoint"]
+  # curr_controls = merged_dmaqc_data[colnames(d),"animal.key.is_control"]
+  # raw_group_info = merged_dmaqc_data[colnames(d),"animal.key.anirandgroup"]
+  # curr_sex = merged_dmaqc_data[colnames(d),"animal.registration.sex"]
+    
+  obj_name = paste(site,tissue_name,sep="_")
+  obj = list(sample_data=d,control_data=control_data,
+             row_annot=row_annot,sample_meta=sample_meta)
+  metabolomics_parsed_datasets[[dataset]] = obj
 }
 ```
 
@@ -110,7 +121,7 @@ for(site in names(raw_abundance_datasets)){
 
 ## Using PLS2 regression
 
-```{r,fig.align="center",out.height='60%',out.width='60%'}
+```{r,fig.align="center",out.height='60%',out.width='60%',eval=FALSE}
 y = metabolomics_parsed_datasets$duke_muscle$sample_data
 x = metabolomics_parsed_datasets$broad_muscle$sample_data
 
@@ -148,7 +159,7 @@ plot(explained_var[1:10],r2s[,2])
 ```
 
 ## Using canonical correlations
-```{r,fig.align="center",out.height='60%',out.width='60%'}
+```{r,fig.align="center",out.height='60%',out.width='60%',eval=FALSE}
 cca_res = whitening::scca(x,y,scale=F,lambda.cor = 0.9)
 ccaX = tcrossprod( x, cca_res$WX)
 ccaY = tcrossprod( y, cca_res$WY)
