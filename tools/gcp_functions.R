@@ -1,4 +1,4 @@
-load_from_bucket<-function(file,bucket,delete=F){
+load_from_bucket<-function(file,bucket,delete=T){
   system(paste("~/google-cloud-sdk/bin/gsutil cp",
                paste(bucket,file,sep=""),
                getwd()))
