@@ -16,32 +16,32 @@ Read the data from both sites - FPKMs, counts, and metadata (including the QC sc
 
 ```{r,results='hide',warning=FALSE,message=FALSE,error=FALSE}
 # load required libraries
-setwd("/Users/David/Desktop/MoTrPAC/data/pass_1a/rnaseq/")
+data_dir = "~/Desktop/MoTrPAC/data/pass_1a/rnaseq/"
+
 library(data.table);library(DESeq2)
 library(preprocessCore);library(ggplot2)
 library(corrplot)
 # load our helper functions
-source(
-  "https://raw.githubusercontent.com/david-dd-amar/motrpac/master/tools/preprocessing_helper_functions.R"
-  )
-source(
-  "https://raw.githubusercontent.com/david-dd-amar/motrpac/master/tools/association_analysis_functions.R"
-  )
+source("~/Desktop/repos/motrpac/tools/preprocessing_helper_functions.R")
+source("~/Desktop/repos/motrpac/tools/association_analysis_functions.R")
+source("~/Desktop/repos/motrpac/tools/gcp_functions.R")
 
 # Data paths
 site2fpkm_path = list(
-  stanford = "./stanford/rsem_genes_fpkm_pass1a_batch1_Stanford.csv",
-  sinai = "./sinai/rsem_genes_fpkm_pass1a_batch1_Sinai.csv"
+  stanford = "stanford/rsem_genes_fpkm_pass1a_batch1_Stanford.csv",
+  sinai = "sinai/rsem_genes_fpkm_pass1a_batch1_Sinai.csv"
 )
 site2genecount_path = list(
-  stanford = "./stanford/rsem_genes_count_pass1a_batch1_Stanford.csv",
-  sinai = "./sinai/rsem_genes_count_pass1a_batch1_Sinai.csv"
+  stanford = "stanford/rsem_genes_count_pass1a_batch1_Stanford.csv",
+  sinai = "sinai/rsem_genes_count_pass1a_batch1_Sinai.csv"
 )
+site2fpkm_path = sapply(site2fpkm_path, function(x,y)paste(y,x,sep=""),y=data_dir)
+site2genecount_path = sapply(site2genecount_path, function(x,y)paste(y,x,sep=""),y=data_dir)
 
 # load the metadata of the samples
 # this is a data frame called rnaseq_meta that contains 
 # the qc and sample metadata from both sites 
-load("./rnaseq_meta.RData")
+load(paste(data_dir,"/rnaseq_meta.RData",sep=""))
 rnaseq_meta$Tissue = tolower(rnaseq_meta$Tissue)
 rnaseq_meta$Tissue = gsub(" powder","",rnaseq_meta$Tissue)
 rnaseq_meta[rnaseq_meta=="N/A"] = NA
@@ -66,11 +66,12 @@ for(site in names(site2fpkm_path)){
 }
 
 # Metadata from DMAQC: use our merged data frame
-system(paste("~/google-cloud-sdk/bin/gsutil",
-             "cp gs://bic_data_analysis/pass1a/pheno_dmaqc/merged_dmaqc_data.RData",
-             "."))
-load("merged_dmaqc_data.RData")
-system("rm merged_dmaqc_data.RData")
+merged_dmaqc_data =  load_from_bucket("merged_dmaqc_data.RData",
+    "gs://bic_data_analysis/pass1a/pheno_dmaqc/",F)
+merged_dmaqc_data = merged_dmaqc_data[[1]]
+merged_dmaqc_data$animal.key.timepoint[merged_dmaqc_data$animal.key.timepoint==-1
+    & !merged_dmaqc_data$animal.key.is_control] = 0
+table(merged_dmaqc_data$animal.key.timepoint)
 # restrict the data frame to vial ids in our RNA-seq data
 print("The following vial ids are not in the DMAQC data:")
 print(setdiff(rownames(rnaseq_meta),merged_dmaqc_data$viallabel))
@@ -312,26 +313,21 @@ write.table(animal_data_results,sep="\t",quote=F,row.names = F)
 
 # Differential abundance analysis (FPKM)
 
-In this analysis we use simple linear regression to model the log fold changes. Here we perfom a simple analysis excluding the control groups (sampled in two time points only). Assume that we are analyzing a specific gene with a gene expression pattern $x$ in a given tissue. We use the following covatiates in the model: (1) $y_{sex}$ - sex, (2) $lt_i$ - time, linear trend, (3) $qt_i$ - time, quadratic trend, (4) $y_d$ - distance acheived by the rat during the acute test, and (5) $Z$ - technical variables. That is: 
-$$x_i = \beta_0 + \beta_{sex}*y_{sex}+\beta_l*lt_i + \beta_q*qt_i + \beta_d*y_d + \bf{\beta_z^TZ_{i,*}}$$.
-
-Here is the code for this analysis:
-
-```{r,fig.align="center",out.height='50%',out.width='50%',message=FALSE,warning=FALSE,eval=FALSE}
-# store all betas and their p-values
-source("/Users/David/Desktop/repos/motrpac/tools/association_analysis_functions.R")
+```{r}
+# Prepare the data for the analysis
 Z_cols = c("pct_multimapped","pct_umi_dup",
            "median_5_3_bias","pct_rRNA","Lib_batch_ID")
 clinical_cols = c("animal.registration.sex","animal.key.timepoint",
                   "animal.key.is_control","acute.test.distance",
                   "acute.test.weight")
-tissue2diff_analysis_results = list()
+rnaseq_data_for_difftests = list()
 rnaseq_meta_batchs = unique(rnaseq_meta[,c("GET_site","Tissue")])
 for(i in 1:nrow(rnaseq_meta_batchs)){
   curr_site = rnaseq_meta_batchs[i,1]
   curr_tissue = rnaseq_meta_batchs[i,2]
-  curr_samples = as.character(rnaseq_meta$vial_label[rnaseq_meta$GET_site==curr_site &
-                                          rnaseq_meta$Tissue==curr_tissue])
+  curr_samples = as.character(
+    rnaseq_meta$vial_label[rnaseq_meta$GET_site==curr_site &
+    rnaseq_meta$Tissue==curr_tissue])
   # For rat data, take samples whose label id starts with "9"
   curr_samples = curr_samples[grepl("^9",curr_samples)]
   curr_data = process_fpkm1(fpkm_all[,curr_samples])
@@ -339,32 +335,52 @@ for(i in 1:nrow(rnaseq_meta_batchs)){
   curr_data = as.matrix(curr_data)
   curr_meta1 = rnaseq_meta[curr_samples,Z_cols]
   curr_meta2 = merged_dmaqc_data[curr_samples,clinical_cols]
+  non_control_inds = (!curr_meta2$animal.key.is_control) | 
+    (curr_meta2$animal.key.is_control & curr_meta2$animal.key.timepoint == -1)
+  curr_name = paste(curr_tissue,curr_site,sep=",")
+  rnaseq_data_for_difftests[[curr_name]] = list(fpkms = curr_data,
+      pipeline_meta = curr_meta1,dmaqc_meta = curr_meta2,
+      non_control_inds=non_control_inds)
+}
+save_to_bucket(rnaseq_data_for_difftests,file = "rnaseq_data_for_difftests.RData",
+               bucket = "gs://bic_data_analysis/pass1a/rnaseq/")
+```
+
+In this analysis we use simple linear regression to model the log fold changes. Here we perfom a simple analysis excluding the control groups (sampled in two time points only). Assume that we are analyzing a specific gene with a gene expression pattern $x$ in a given tissue. We use the following covatiates in the model: (1) $y_{sex}$ - sex, (2) $lt_i$ - time, linear trend, (3) $qt_i$ - time, quadratic trend, (4) $y_d$ - distance acheived by the rat during the acute test, and (5) $Z$ - technical variables. That is: 
+$$x_i = \beta_0 + \beta_{sex}*y_{sex}+\beta_l*lt_i + \beta_q*qt_i + \beta_d*y_d + \bf{\beta_z^TZ_{i,*}}$$.
+
+Here is the code for this analysis:
+
+```{r,fig.align="center",out.height='50%',out.width='50%',message=FALSE,warning=FALSE,eval=FALSE}
+# store all betas and their p-values
+tissue2diff_analysis_results = list()
+for(curr_name in names(rnaseq_data_for_difftests)){
+  curr_data = rnaseq_data_for_difftests[[curr_name]]$fpkms
+  curr_meta1 = rnaseq_data_for_difftests[[curr_name]]$pipeline_meta
+  curr_meta2 = rnaseq_data_for_difftests[[curr_name]]$dmaqc_meta
+  # to exclude the controls before the analysis:
+  non_control_inds = rnaseq_data_for_difftests[[curr_name]]$non_control_inds
+  # Define the formula
   tp_poly = poly(curr_meta2$animal.key.timepoint,degree = 2)
   colnames(tp_poly) = c("time.linear","time.quad")
   X = cbind(curr_meta2,curr_meta1,tp_poly)
   form = y ~ time.linear + time.quad +
     animal.registration.sex + pct_multimapped + acute.test.distance +
     pct_umi_dup + median_5_3_bias + pct_rRNA
-  
-  # to exclude the controls before the analysis:
-  non_control_inds = !curr_meta2$animal.key.is_control
-  # hist(X$distance[non_control_inds])
+  # Run the tests
   lm_results = t(apply(curr_data[,non_control_inds],1,
                        lm_wrapper_for_diff_abundance_analysis,
                        x=X[non_control_inds,],form=form))
-  
-  curr_name = paste(curr_tissue,curr_site,sep=",")
   # Save the results and the analysis input into a single object
   tissue2diff_analysis_results[[curr_name]] = list(
-    diff_res = lm_results,
-    ge_data = curr_data,
-    X = X,
-    form=form,
+    diff_res = lm_results,ge_data = curr_data,
+    X = X,form=form,
     non_control_inds = non_control_inds
   )
 }
 
 # Save the results to our google bucket
+
 save(tissue2diff_analysis_results,
        file="tissue2diff_analysis_results.RData")
 system(paste("~/google-cloud-sdk/bin/gsutil", "cp tissue2diff_analysis_results.RData",
@@ -374,24 +390,15 @@ system("rm tissue2diff_analysis_results.RData")
 # Add simple ANOVA
 tissue2diff_analysis_results_anova = list()
 tissue2diff_analysis_results_kw = list()
-for(i in 1:nrow(rnaseq_meta_batchs)){
-  curr_site = rnaseq_meta_batchs[i,1]
-  curr_tissue = rnaseq_meta_batchs[i,2]
-  curr_samples = as.character(rnaseq_meta$vial_label[rnaseq_meta$GET_site==curr_site &
-                                          rnaseq_meta$Tissue==curr_tissue])
-  # For rat data, take samples whose label id starts with "9"
-  curr_samples = curr_samples[grepl("^9",curr_samples)]
-  curr_data = process_fpkm1(fpkm_all[,curr_samples])
-  curr_data = run_quantile_normalization(curr_data)
-  curr_data = as.matrix(curr_data)
-  curr_meta2 = merged_dmaqc_data[curr_samples,clinical_cols]
-  y = curr_meta2$animal.key.timepoint
+for(curr_name in names(rnaseq_data_for_difftests)){
+  curr_data = rnaseq_data_for_difftests[[curr_name]]$fpkms
+  curr_meta1 = rnaseq_data_for_difftests[[curr_name]]$pipeline_meta
+  curr_meta2 = rnaseq_data_for_difftests[[curr_name]]$dmaqc_meta
   # to exclude the controls before the analysis:
-  non_control_inds = !curr_meta2$animal.key.is_control
+  non_control_inds = rnaseq_data_for_difftests[[curr_name]]$non_control_inds
   y = curr_meta2$animal.key.timepoint[non_control_inds]
   curr_data = curr_data[,non_control_inds]
-  curr_name = paste(curr_tissue,curr_site,sep=",")
-  
+
   curr_res1 = apply(curr_data,1,compare_multigroup_means,y = y)
   curr_res2 = apply(curr_data,1,compare_multigroup_means,
                     y = y,f = kruskal.test)
@@ -411,14 +418,8 @@ We next inspect the results of the analysis. At a first step, we inspect the p-v
 
 ```{r,fig.align="center",out.height='50%',out.width='80%',message=FALSE,warning=FALSE}
 # load precomputed results
-system(paste("~/google-cloud-sdk/bin/gsutil", 
-             "cp gs://bic_data_analysis/pass1a/rnaseq/tissue2diff_analysis_results.RData",
-             "."))
-
-load("tissue2diff_analysis_results.RData")
 print("number of analyzed genes in each tissue:")
 print(sapply(tissue2diff_analysis_results,function(x)dim(x[[1]])))
-
 par(mfrow=c(1,3))
 for(curr_name in names(tissue2diff_analysis_results)){
   lm_results = tissue2diff_analysis_results[[curr_name]][[1]]
@@ -441,8 +442,6 @@ for(curr_name in names(tissue2diff_analysis_results)){
 
 ```
 
-## Simple F- or t-test analysis
-
 ## T-tests and mediation analysis for sex vs weight
 
 ```{r,fig.align="center",out.height='40%',out.width='40%',message=FALSE,warning=FALSE}
@@ -453,33 +452,23 @@ run_sex_weight_mediation<-function(x,s,w){
   m2 = lm(x~s+w)
   med.out = mediate(m1,m2,treat="s",mediator="w",boot=T,
                     robustSE = TRUE, sims = 100)
-  # sens.out <- medsens(med.out, 
-  #                     rho.by = 0.1, effect.type = "indirect", sims = 100)
-  # summary(sens.out)
-  
   med.out = summary(med.out)
   med.out[c("d0.p","d1.p")]
-  res = unlist(med.out[c("d0","d0.p","z0","z0.p","n0")])
+  res = unlist(med.out[c("d0","d0.p","z0","z0.p","n0","tau.coef","tau.p")])
   names(res) = c("med_effect","med_effect_pvalue",
                  "direct_effec","direct_effect_pvalue",
-                 "prop_mediated")
+                 "prop_mediated","total_effect","tot_effect_p")
   return(res)
 }
 
 t_tests_results = list()
 mediation_results = list()
-for(i in 1:nrow(rnaseq_meta_batchs)){
-  curr_site = rnaseq_meta_batchs[i,1]
-  curr_tissue = rnaseq_meta_batchs[i,2]
-  curr_samples = as.character(
-    rnaseq_meta$vial_label[rnaseq_meta$GET_site==curr_site &
-                           rnaseq_meta$Tissue==curr_tissue])
-  # For rat data, take samples whose label id starts with "9"
-  curr_samples = curr_samples[grepl("^9",curr_samples)]
-  curr_data = process_fpkm1(fpkm_all[,curr_samples])
-  curr_data = run_quantile_normalization(curr_data)
-  curr_data = as.matrix(curr_data)
-  curr_meta2 = merged_dmaqc_data[curr_samples,clinical_cols]
+for(curr_name in names(rnaseq_data_for_difftests)){
+  curr_data = rnaseq_data_for_difftests[[curr_name]]$fpkms
+  curr_meta1 = rnaseq_data_for_difftests[[curr_name]]$pipeline_meta
+  curr_meta2 = rnaseq_data_for_difftests[[curr_name]]$dmaqc_meta
+  # to exclude the controls before the analysis:
+  non_control_inds = rnaseq_data_for_difftests[[curr_name]]$non_control_inds
   y = curr_meta2$animal.key.timepoint
   z = curr_meta2$animal.key.is_control
   
@@ -506,12 +495,44 @@ for(i in 1:nrow(rnaseq_meta_batchs)){
     mediation_analysis_res = apply(x[inds,],1,run_sex_weight_mediation,s=s,w=w)
     mediation_analysis_res = t(mediation_analysis_res)
     
-    curr_name = paste(curr_tissue,curr_site,sep=",")
+    curr_name = paste(curr_tissue,curr_site,tp,sep=",")
     t_tests_results[[curr_name]] = ttest_res
     mediation_results[[curr_name]] = mediation_analysis_res
   }
   
 }
+
+save(t_tests_results,mediation_results,
+       file="tissue2diff_ttest_and_mediation.RData")
+system(paste("~/google-cloud-sdk/bin/gsutil", 
+             "cp tissue2diff_ttest_and_mediation.RData",
+             "gs://bic_data_analysis/pass1a/rnaseq/"))
+
+```
+
+## Enrichment analysis and interpretation
+
+```{r}
+library(org.Rn.eg.db)
+res = t_tests_results$`gastrocnemius,Stanford,4`
+geneset = rownames(res)[p.adjust(res[,3])<0.1]
+topgo_res = run_topgo_enrichment_fisher(geneset,rownames(res),mapping = "org.Rn.eg.db",ID="ensembl")
+extract_top_go_results(topgo_res,qval = 0.01,maxsize = 200)
+
+med_res = mediation_results$`gastrocnemius,MSSM,4`
+colnames(med_res)
+weight_assoc_genes = p.adjust(med_res[,2])<0.001
+sex_assoc_genes = p.adjust(med_res[,7])<0.001
+table(weight_assoc_genes,sex_assoc_genes)
+table(weight_assoc_genes)
+fisher.test(table(weight_assoc_genes,sex_assoc_genes))$p.value
+
+geneset = rownames(med_res)[weight_assoc_genes]
+topgo_res = run_topgo_enrichment_fisher(
+  geneset,rownames(res),mapping = "org.Rn.eg.db",ID="ensembl")
+extract_top_go_results(topgo_res,qval = 0.1,maxsize = 2000)
+
+
 ```
 
 \pagebreak

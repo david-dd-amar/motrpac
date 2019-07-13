@@ -8,3 +8,8 @@ run_quantile_normalization<-function(x){
   colnames(newx) = colnames(x)
   return(newx)
 }
+
+try(library(NOISeq))
+run_tmm_normalization<-function(x,...){
+  return(NOISeq::tmm(x,...))
+}

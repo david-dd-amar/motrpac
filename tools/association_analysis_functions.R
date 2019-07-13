@@ -98,6 +98,27 @@ lm_wrapper_for_diff_abundance_analysis<-function(y,x,form = NULL){
   return(c(x1,x2))
 }
 
+# Compare multiple groups using ANOVA's F-test or Kruskal-Wallis
+compare_multigroup_means<-function(x,y,f=aov){
+  df = data.frame(x=x,y=as.factor(y))
+  test_res = f(x~y,data=df)
+  if(is.element("aov",set=class(test_res))){
+    test_res = summary(test_res)
+    return(test_res[[1]]["y","Pr(>F)"])
+  }
+  return(test_res$p.value)
+}
+
+compare_two_groups<-function(x,y,f=t.test,...){
+  if(sd(x)==0){return(c(x[1],x[1],1))}
+  x1 = x[y==y[1]]
+  x2 = x[y!=y[1]]
+  if(sd(x1)==0){return(c(x1[1],mean(x2),1))}
+  if(sd(x2)==0){return(c(mean(x1),x2[1],1))}
+  res = f(x1,x2,...)
+  return(c(res$estimate,res$p.value))
+}
+
 # # test
 # n=100
 # x = rbinom(n,1,0.3)

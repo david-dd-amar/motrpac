@@ -35,13 +35,13 @@ source("~/Desktop/repos/motrpac/tools/gcp_functions.R")
 metabolomics_data_bucket = "gs://bic_data_analysis/pass1a/metabolomics/"
 rdata_files = get_files_in_bucket(metabolomics_data_bucket)
 rdata_files = rdata_files[grepl(".rdata$",rdata_files,ignore.case = T)]
-site_names = c("duke","mayo","broad")
+site_names = c("duke","mayo","broad","gtech")
 for(site in site_names){
   inds = grepl(site,rdata_files,ignore.case = T)
   names(rdata_files)[inds] = site
 }
 rdata_files = gsub(metabolomics_data_bucket,"",rdata_files)
-rdata_objects = sapply(rdata_files,load_from_bucket,bucket=metabolomics_data_bucket,delete=F)
+rdata_objects = sapply(rdata_files,load_from_bucket,bucket=metabolomics_data_bucket,delete=T)
 
 # Separate the datasets by site, tissue, and type (metadata or not)
 raw_abundance_datasets = lapply(rdata_objects,function(x,y)x[grepl(y,names(x))],y="compounds")
@@ -56,7 +56,7 @@ raw_abundance_datasets_tissues = lapply(raw_abundance_datasets,
 # each entry has abundance data, row annot data, control data, sample metadata (optional)
 metabolomics_parsed_datasets = list()
 for(site in names(raw_abundance_datasets)){
-  is_untargeted = site == "broad"
+  is_untargeted = is.element(site,set = c("broad","gtech"))
   for(tissue in names(raw_abundance_datasets[[site]])){
     d = raw_abundance_datasets[[site]][[tissue]]
     sample_meta = sample_metadata[[site]][[tissue]]
@@ -162,6 +162,10 @@ plot(ccaY[,1],ccaY[,2])
 
 ```{r}
 
+CV <-function(x){
+  return(sd(x)/mean(x))
+}
+
 # Get all correlation and covariance matrices
 y = metabolomics_parsed_datasets[[1]]$sample_data # anchor all datasets by these ids
 y_vials = colnames(y)
@@ -181,17 +185,28 @@ for(nn in names(metabolomics_parsed_datasets)){
   x = x[,bid_y]
   x = apply(x,1,regress_out,covs=covs)
   x = t(x)
-  pcax = t(prcomp(t(x),scale. = F)$x[,1:10])
+  cvs = apply(x,1,CV)
+  print(table(cvs>0.5))
+  x = x[cvs>0.5,]
+  # pcax = t(prcomp(t(x),scale. = F)$x[,1:10])
   cov_matrices[[nn]] = cov(x)
-  cor_matrices[[nn]] = cor(pcax)
+  cor_matrices[[nn]] = cor(x)
 }
 sapply(cor_matrices,dim)
 library('evolqg');library(corrplot)
-mantel_tests= MatrixCor(cor_matrices)
-diag(mantel_tests)=1
-corrplot(mantel_tests,type="lower")
+mantel_tests= MantelCor(cor_matrices)
+mcors= MatrixCor(cor_matrices)
+# diag(mantel_tests)=0
+corrplot(mcors,p.mat=mantel_tests$probabilities,type="lower",
+         insig = "label_sig",method="shade",
+         sig.level = c(.0001, .001, .01),
+         pch.cex = .9, pch.col = "black",tl.cex=0.6)
 rs_res = RandomSkewers(cor_matrices)
-corrplot(rs_res$correlations)
+corrplot(rs_res$correlations,
+         p.mat=mantel_tests$probabilities,type="lower",
+         insig = "label_sig",method="shade",
+         sig.level = c(.0001, .001, .01),
+         pch.cex = .9, pch.col = "black",tl.cex=0.6)
 
 library(psych)
 
