@@ -43,10 +43,11 @@ get_explained_variance_using_PCA<-function(x,y,ncomp=10,...){
   return(explained_prop)
 }
 
-apply_function_on_pairs<-function(l,f,...){
+apply_function_on_pairs<-function(l,f,print_progress=F,...){
   n = length(l)
   m = matrix(NA,nrow=n,ncol=n,dimnames = list(names(l),names(l)))
   for(i in 1:n){
+    if(print_progress){print(i)}
     for(j in 1:n){
       m[i,j] = f(l[[i]],l[[j]],...)
       m[j,i] = m[i,j]

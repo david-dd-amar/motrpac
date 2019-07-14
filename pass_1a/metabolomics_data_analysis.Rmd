@@ -85,7 +85,6 @@ for(dataset in names(raw_abundance_datasets)){
     
   d[is.na(d)] = 0
   d = log(d+1,base=2)
-  d = d[apply(d,1,sd)>0,]
     
   control_columns = !is.element(colnames(d),set=merged_dmaqc_data$viallabel)
   control_data = d[,control_columns]
@@ -208,10 +207,15 @@ library('evolqg');library(corrplot)
 mantel_tests= MantelCor(cor_matrices)
 mcors= MatrixCor(cor_matrices)
 # diag(mantel_tests)=0
-corrplot(mcors,p.mat=mantel_tests$probabilities,type="lower",
+corrplot(t(mcors),p.mat=t(mantel_tests$probabilities),type="upper",
          insig = "label_sig",method="shade",
          sig.level = c(.0001, .001, .01),
          pch.cex = .9, pch.col = "black",tl.cex=0.6)
+corrplot(mcors,type="lower",
+         insig = "label_sig",method="shade",
+         sig.level = c(.0001, .001, .01),
+         pch.cex = .9, pch.col = "black",tl.cex=0.6,
+         order="hclust")
 rs_res = RandomSkewers(cor_matrices)
 corrplot(rs_res$correlations,
          p.mat=mantel_tests$probabilities,type="lower",
@@ -238,6 +242,89 @@ corrplot(threshold_comp,is.corr = F,order="hclust")
 ```
 
 # Integrarion with RNAseq
+
+# Looking at metabolite overlap
+
+```{r,fig.align="center",out.height='50%',out.width='80%',message=FALSE,warning=FALSE}
+metabolite_sets = list()
+for(nn in names(metabolomics_parsed_datasets)){
+  an = metabolomics_parsed_datasets[[nn]]$row_annot
+  name_cols = colnames(an)[grepl("_name",colnames(an),ignore.case = T)]
+  metabolite_sets[[nn]] = unique(tolower(an[,name_cols[1]]))
+}
+overlap_matrix = apply_function_on_pairs(metabolite_sets,
+                                         function(x,y)length(intersect(x,y)))
+corrplot(log(overlap_matrix+1,10),is.corr = F)
+
+
+site_cor_comparison = apply_function_on_pairs(
+  metabolomics_parsed_datasets,
+  compare_two_met_sites,print_progress = T,
+  merged_dmaqc_data = merged_dmaqc_data,samplesize=20
+)
+
+site_cor_comparison[is.na(site_cor_comparison)]=0
+corrplot(site_cor_comparison,order="hclust")
+
+compare_two_met_sites<-function(x,y,merged_dmaqc_data,samplesize=100,...){
+  an_x = x$row_annot
+  name_colsx = colnames(an_x)[grepl("_name",colnames(an_x),ignore.case = T)]
+  an_y = y$row_annot
+  name_colsy = colnames(an_y)[grepl("_name",colnames(an_y),ignore.case = T)]
+  
+  names_x = as.character(an_x[,name_colsx[1]])
+  names_y = as.character(an_y[,name_colsy[1]])
+  shared = intersect(names_x,names_y)
+  shared = setdiff(shared,c(NA,""))
+  
+  mx = x$sample_data
+  my = y$sample_data
+  
+  if(any(table(names_x)>1)){
+    mx = apply(mx,2,function(x,y)tapply(x,INDEX=y,FUN=mean,na.rm=T),y=names_x)
+  }
+  else{
+    rownames(mx) = as.character(names_x)
+  }
+  if(any(table(names_y)>1)){
+    my = apply(my,2,function(x,y)tapply(x,INDEX=y,FUN=mean,na.rm=T),y=names_y)
+  }
+  else{
+    rownames(my) = as.character(names_y)
+  }
+  
+  bid_x = as.character(merged_dmaqc_data[colnames(mx),"bid"])
+  bid_y = as.character(merged_dmaqc_data[colnames(my),"bid"])
+  if(sum(!is.element(bid_y,set=bid_x))>0){
+    stop("BIDs do not match between x and y")
+  } # should be zero
+  colnames(mx) = bid_x
+  colnames(my) = bid_y
+  if(length(shared)>samplesize){
+    shared = sample(shared)[1:samplesize]
+  }
+  mx = mx[shared,bid_y]
+  my = my[shared,]
+  mx = as.matrix(mx);my = as.matrix(my)
+  if(nrow(mx)<2){return(NA)}
+  # print("####")
+  # print(dim(mx))
+  # print("####")
+  # print(dim(my))
+  if(length(shared)<=100){
+    corrs = diag(cor(t(mx),t(my)))
+  }
+  else{
+    corrs = c()
+    for(i in 1:nrow(mx)){
+      # print(mean(mx[i,]))
+      corrs[rownames(mx)[i]] = cor(mx[i,],my[i,])
+    }
+  }
+  return(mean(corrs))
+}
+
+```
 
 # Differential abundance analysis
 

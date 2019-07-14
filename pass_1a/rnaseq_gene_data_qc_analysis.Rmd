@@ -26,6 +26,7 @@ source("~/Desktop/repos/motrpac/tools/preprocessing_helper_functions.R")
 source("~/Desktop/repos/motrpac/tools/association_analysis_functions.R")
 source("~/Desktop/repos/motrpac/tools/gcp_functions.R")
 source("~/Desktop/repos/motrpac/tools/enrichment_analysis_methods.R")
+source("~/Desktop/repos/motrpac/tools/rat_data.R")
 
 # Data paths
 site2fpkm_path = list(
@@ -435,6 +436,33 @@ run_sex_weight_mediation<-function(x,s,w){
 }
 
 t_tests_results = list()
+for(curr_name in names(rnaseq_data_for_difftests)){
+  curr_data = rnaseq_data_for_difftests[[curr_name]]$fpkms
+  curr_meta1 = rnaseq_data_for_difftests[[curr_name]]$pipeline_meta
+  curr_meta2 = rnaseq_data_for_difftests[[curr_name]]$dmaqc_meta
+  # to exclude the controls before the analysis:
+  non_control_inds = rnaseq_data_for_difftests[[curr_name]]$non_control_inds
+  y = curr_meta2$animal.key.timepoint
+  z = curr_meta2$animal.key.is_control
+  
+  controls_data = curr_data[,z & y==min(y)]
+  mean_control = rowMeans(controls_data)
+  curr_data = curr_data[,!z]
+  y = y[!z]
+  for(tp in unique(y)){
+    x = curr_data[,y==tp]
+    x_ttest = cbind(x,controls_data)
+    g = curr_meta2[colnames(x_ttest),]$animal.key.is_control
+    ttest_res = t(apply(x_ttest,1,compare_two_groups,y = g))
+    fchange = ttest_res[,1]-ttest_res[,2]
+    hist(ttest_res[,3])
+    ttest_res = cbind(ttest_res,fchange)
+    colnames(ttest_res) = c("mean1","mean2","p","fchange")
+    curr_entry_name = paste(curr_name,tp,sep=",")
+    t_tests_results[[curr_entry_name]] = ttest_res
+  }
+}
+
 mediation_results = list()
 for(curr_name in names(rnaseq_data_for_difftests)){
   curr_data = rnaseq_data_for_difftests[[curr_name]]$fpkms
@@ -450,36 +478,41 @@ for(curr_name in names(rnaseq_data_for_difftests)){
   curr_data = curr_data[,!z]
   y = y[!z]
   
+  regression_res = tissue2diff_analysis_results[[curr_name]]
+  regression_res = as.data.frame(regression_res$diff_res)
+  p1 = regression_res$`pval;animal.registration.sex`
+  p2 = regression_res$`pval;time.quad`
+  curr_genes = rownames(regression_res)[
+    p.adjust(p1,method="fdr") < 0.1 &
+      p.adjust(p2,method="fdr") < 0.1
+  ]
+  
   for(tp in unique(y)){
-    x = curr_data[,y==tp]
-    x_ttest = cbind(x,controls_data)
-    g = curr_meta2[colnames(x_ttest),]$animal.key.is_control
-    ttest_res = t(apply(x_ttest,1,compare_two_groups,y = g))
-    fchange = ttest_res[,1]-ttest_res[,2]
-    hist(ttest_res[,3])
-    ttest_res = cbind(ttest_res,fchange)
-    colnames(ttest_res) = c("mean1","mean2","p","fchange")
-    
-    # # prepare data for the mediation analysis
-    # for(j in 1:ncol(x)){x[,j] = x[,j]-mean_control}
-    # s = curr_meta2[colnames(x),]$animal.registration.sex
-    # w = curr_meta2[colnames(x),]$acute.test.weight
-    # # select rows for the medition analysis
-    # inds = abs(fchange) > 0.25 & ttest_res[,3] < 0.01
-    # print(table(inds))
-    # # mediation_analysis_res = apply(x[inds,],1,run_sex_weight_mediation,s=s,w=w)
-    # # mediation_analysis_res = t(mediation_analysis_res)
-
     curr_entry_name = paste(curr_name,tp,sep=",")
-    t_tests_results[[curr_entry_name]] = ttest_res
-    # mediation_results[[curr_entry_name]] = mediation_analysis_res
+    x = curr_data[,y==tp]
+    ttest_res = t_tests_results[[curr_entry_name]]
+    fchange = ttest_res[,"fchange"]
+    
+    # prepare data for the mediation analysis
+    for(j in 1:ncol(x)){x[,j] = x[,j]-mean_control}
+    s = curr_meta2[colnames(x),]$animal.registration.sex
+    s = s-1
+    w = curr_meta2[colnames(x),]$acute.test.weight
+    # select rows for the medition analysis
+    inds = curr_genes
+    print(table(inds))
+    mediation_analysis_res = apply(x[inds,],1,run_sex_weight_mediation,s=s,w=w)
+    mediation_analysis_res = t(mediation_analysis_res)
+    mediation_results[[curr_entry_name]] = mediation_analysis_res
   }
 }
+
 save(t_tests_results,mediation_results,
        file="tissue2diff_ttest_and_mediation.RData")
 system(paste("~/google-cloud-sdk/bin/gsutil", 
              "cp tissue2diff_ttest_and_mediation.RData",
              "gs://bic_data_analysis/pass1a/rnaseq/"))
+system("rm tissue2diff_ttest_and_mediation.RData")
 
 ```
 
@@ -545,6 +578,9 @@ Here we use empirical Bayes methods to quantify the number of differential genes
 
 ```{r,fig.align="center",out.height='50%',out.width='80%',message=FALSE,warning=FALSE}
 all_ttest_pvals = lapply(t_tests_results,function(x)x[,3])
+all_pvals = unname(unlist(all_ttest_pvals))
+all_qvals = p.adjust(all_pvals,method="BY")
+pval_thr = max(all_pvals[all_qvals<0.1])
 all_ttest_fcs = lapply(t_tests_results,function(x)x[,4])
 
 merge_matrix<-function(l,missing_val = 1){
@@ -563,6 +599,50 @@ all_ttest_fcs = merge_matrix(all_ttest_fcs,0)
 corrplot(cor(all_ttest_pvals),tl.cex = 0.5)
 corrplot(cor(all_ttest_fcs),tl.cex = 0.5,order="hclust")
 
+hist(all_ttest_pvals)
+colSums(all_ttest_pvals<pval_thr)
+
+# Network prop
+library(dnet);library(foreach);library(doParallel);library(parallel)
+g = igraph::graph_from_edgelist(rat_ppi_entrez)
+nodes = names(V(g))
+res_mat = all_ttest_pvals < pval_thr
+rownames(res_mat) = rat_ensembl2entrez_simple[rownames(res_mat)]
+to_rem = is.na(rownames(res_mat)) | !is.element(rownames(res_mat),set=nodes)
+res_mat = res_mat[!to_rem,]
+currgenes = rownames(res_mat)
+res_mat = apply(res_mat,2,function(x,y)tapply(x,INDEX = y,FUN = sum),y=currgenes)
+mode(res_mat) = "numeric"
+res_mat = as.data.frame(res_mat,check.names = F)
+g = igraph::subgraph(g,rownames(res_mat))
+prop_res = dRWRpipeline(res_mat,g,normalise="none",
+                restart=0.1, parallel=FALSE)
+prop_res1 = 1-as.matrix(prop_res$adjpval)
+rownames(prop_res1) = colnames(res_mat)
+colnames(prop_res1) = colnames(res_mat)
+dim(prop_res1)
+corrplot(prop_res1,tl.cex = 0.5,order="hclust")
+
+# An alternative: create an integrated graph first and then propagate
+merged_net = igraph::as_edgelist(g)
+for(nn in names(res_mat)){
+  curr_genes = rownames(res_mat)[res_mat[,nn]>0]
+  curr_edges = cbind(rep(nn,length(curr_genes)),curr_genes)
+  print(dim(curr_edges))
+  merged_net = rbind(merged_net,curr_edges)
+}
+merged_g = igraph::graph_from_edgelist(merged_net)
+nodes = names(V(merged_g))
+seeds = matrix(0,nrow=length(nodes),ncol=ncol(res_mat))
+rownames(seeds) = nodes
+colnames(seeds) = colnames(res_mat)
+for(nn in names(res_mat)){seeds[nn,nn]=1}
+seeds[names(res_mat)] = 1
+prop_res = dRWR(merged_g,"none",seeds)
+prop_res = as.matrix(prop_res)
+colnames(prop_res) = colnames(seeds)
+rownames(prop_res) = rownames(seeds)
+prop_res = prop_res[colnames(res_mat),colnames(res_mat)]
 ```
 
 We next extract the fold change and p-value matrices and compare the tissues, with and without network propagation.
@@ -571,27 +651,38 @@ We next extract the fold change and p-value matrices and compare the tissues, wi
 
 ```{r}
 library(org.Rn.eg.db)
-res = t_tests_results$
+res = t_tests_results$`brown adipose,Stanford,4`
 geneset = rownames(res)[p.adjust(res[,3])<0.1]
 topgo_res = run_topgo_enrichment_fisher(geneset,rownames(res),
     mapping = "org.Rn.eg.db",ID="ensembl")
 extract_top_go_results(topgo_res,qval = 0.01,maxsize = 200)
 
-# med_res = mediation_results$`gastrocnemius,MSSM,4`
-# colnames(med_res)
-# weight_assoc_genes = p.adjust(med_res[,2])<0.001
-# sex_assoc_genes = p.adjust(med_res[,7])<0.001
-# table(weight_assoc_genes,sex_assoc_genes)
-# table(weight_assoc_genes)
-# fisher.test(table(weight_assoc_genes,sex_assoc_genes))$p.value
-# 
-# geneset = rownames(med_res)[weight_assoc_genes]
-# topgo_res = run_topgo_enrichment_fisher(
-#   geneset,rownames(res),mapping = "org.Rn.eg.db",ID="ensembl")
-# extract_top_go_results(topgo_res,qval = 0.1,maxsize = 2000)
+med_res = mediation_results$`gastrocnemius,MSSM,4`
+colnames(med_res)
+med_res[,2] = pmax(med_res[,2],0.0001)
+med_res[,7] = pmax(med_res[,7],0.0001)
+weight_assoc_genes = p.adjust(med_res[,2],method="fdr")<0.1
+sex_assoc_genes = p.adjust(med_res[,7],method="fdr")<0.1
+table(weight_assoc_genes,sex_assoc_genes)
+table(weight_assoc_genes)
 
+geneset = rownames(med_res)[weight_assoc_genes]
+geneset = names(which(sex_assoc_genes & weight_assoc_genes))
+topgo_res = run_topgo_enrichment_fisher(
+  geneset,rownames(res),mapping = "org.Rn.eg.db",ID="ensembl")
+extract_top_go_results(topgo_res,qval = 1,maxsize = 2000)
+
+dataset = rnaseq_data_for_difftests$`gastrocnemius,MSSM`
+X = dataset$fpkms[geneset,]
+cols = as.factor(dataset$dmaqc_meta$animal.key.timepoint)
+boxplot(X[2,]~dataset$dmaqc_meta$animal.registration.sex)
+inds = dataset$dmaqc_meta$animal.registration.sex==1
+plot(X[2,inds],dataset$dmaqc_meta$acute.test.weight[inds])
 
 ```
+
+## Mediation analysis
+
 
 \pagebreak
 

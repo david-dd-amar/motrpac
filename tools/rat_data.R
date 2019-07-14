@@ -17,6 +17,7 @@ rat_ppi[,2] = gsub("10116.","",rat_ppi[,2])
 
 get_first<-function(x){return(sort(x,decreasing = F)[1])}
 rat_ensemble_prot2entrez_simple = sapply(rat_ensemble_prot2entrez,get_first)
+rat_ensembl2entrez_simple = sapply(rat_ensembl2entrez,get_first)
 
 rat_ppi_entrez = cbind(
   rat_ensemble_prot2entrez_simple[rat_ppi[,1]],
@@ -24,22 +25,23 @@ rat_ppi_entrez = cbind(
 )
 rat_ppi_entrez = rat_ppi_entrez[!apply(is.na(rat_ppi_entrez),1,any),]
 
-# Test propagation/diffusion
-source("http://bioconductor.org/biocLite.R")
-biocLite(c("foreach","doParallel"))
-biocLite("supraHex")
-install.packages("dnet")
-library(dnet);library(foreach);library(doParallel);library(parallel)
-g = igraph::graph_from_edgelist(rat_ppi_entrez)
-nodes = names(V(g))
-w = rep(0,length(nodes))
-w[1:100]=1
-w = data.frame(w)
-rownames(w) = nodes
-test_rw = dRWR(g,normalise="none", setSeeds=w,
-               restart=0.75, parallel=FALSE)
-test_rw = as.matrix(test_rw)
-plot(test_rw[,1],w[,1])
-visHeatmapAdv(test_rw)
-# an alternative: RandomWalkRestartMH
+# # Test propagation/diffusion
+# source("http://bioconductor.org/biocLite.R")
+# biocLite(c("foreach","doParallel"))
+# biocLite("supraHex")
+# install.packages("dnet")
+# library(dnet);library(foreach);library(doParallel);library(parallel)
+# g = igraph::graph_from_edgelist(rat_ppi_entrez)
+# nodes = names(V(g))
+# w = rep(0,length(nodes))
+# w[1:100]=1
+# w = data.frame(w)
+# rownames(w) = nodes
+# test_rw = dRWR(g,normalise="none", setSeeds=w,
+#                restart=0.75, parallel=FALSE)
+# test_rw = as.matrix(test_rw)
+# plot(test_rw[,1],w[,1])
+# visHeatmapAdv(test_rw)
+# # an alternative: RandomWalkRestartMH
+# biocLite("RandomWalkRestartMH")
 
