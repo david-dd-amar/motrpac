@@ -260,7 +260,7 @@ corrplot(log(overlap_matrix+1,10),is.corr = F)
 site_cor_comparison = apply_function_on_pairs(
   metabolomics_parsed_datasets,
   compare_two_met_sites,print_progress = T,
-  merged_dmaqc_data = merged_dmaqc_data,samplesize=20
+  merged_dmaqc_data = merged_dmaqc_data,samplesize=500
 )
 
 site_cor_comparison[is.na(site_cor_comparison)]=0

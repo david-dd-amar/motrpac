@@ -616,7 +616,7 @@ mode(res_mat) = "numeric"
 res_mat = as.data.frame(res_mat,check.names = F)
 g = igraph::subgraph(g,rownames(res_mat))
 prop_res = dRWRpipeline(res_mat,g,normalise="none",
-                restart=0.1, parallel=FALSE)
+                restart=0.5, parallel=FALSE)
 prop_res1 = 1-as.matrix(prop_res$adjpval)
 rownames(prop_res1) = colnames(res_mat)
 colnames(prop_res1) = colnames(res_mat)
@@ -625,24 +625,33 @@ corrplot(prop_res1,tl.cex = 0.5,order="hclust")
 
 # An alternative: create an integrated graph first and then propagate
 merged_net = igraph::as_edgelist(g)
-for(nn in names(res_mat)){
+for(nn in colnames(res_mat)){
   curr_genes = rownames(res_mat)[res_mat[,nn]>0]
   curr_edges = cbind(rep(nn,length(curr_genes)),curr_genes)
   print(dim(curr_edges))
   merged_net = rbind(merged_net,curr_edges)
 }
-merged_g = igraph::graph_from_edgelist(merged_net)
+merged_g = igraph::graph_from_edgelist(merged_net,directed = F)
 nodes = names(V(merged_g))
 seeds = matrix(0,nrow=length(nodes),ncol=ncol(res_mat))
 rownames(seeds) = nodes
 colnames(seeds) = colnames(res_mat)
-for(nn in names(res_mat)){seeds[nn,nn]=1}
-seeds[names(res_mat)] = 1
-prop_res = dRWR(merged_g,"none",seeds)
+for(nn in names(res_mat)){seeds[nn,nn]=sum(res_mat[,nn])}
+prop_res = dRWR(merged_g,"laplacian",seeds,
+                normalise.affinity.matrix = "quantile",
+                restart = 0.5)
 prop_res = as.matrix(prop_res)
 colnames(prop_res) = colnames(seeds)
 rownames(prop_res) = rownames(seeds)
 prop_res = prop_res[colnames(res_mat),colnames(res_mat)]
+diag(prop_res) = 0
+for(i in 1:nrow(prop_res)){
+	prop_res[i,] = prop_res[i,]/(sum(prop_res[i,]))
+}
+
+corrplot(prop_res,is.corr = F,tl.cex = 0.5,order="hclust")
+corrplot(prop_res,is.corr = F)
+
 ```
 
 We next extract the fold change and p-value matrices and compare the tissues, with and without network propagation.
@@ -667,7 +676,7 @@ table(weight_assoc_genes,sex_assoc_genes)
 table(weight_assoc_genes)
 
 geneset = rownames(med_res)[weight_assoc_genes]
-geneset = names(which(sex_assoc_genes & weight_assoc_genes))
+geneset = names(which(sex_assoc_genes))
 topgo_res = run_topgo_enrichment_fisher(
   geneset,rownames(res),mapping = "org.Rn.eg.db",ID="ensembl")
 extract_top_go_results(topgo_res,qval = 1,maxsize = 2000)
