@@ -339,7 +339,8 @@ for(i in 1:nrow(rnaseq_meta_batchs)){
   curr_meta1 = rnaseq_meta[curr_samples,Z_cols]
   curr_meta2 = merged_dmaqc_data[curr_samples,clinical_cols]
   non_control_inds = (!curr_meta2$animal.key.is_control) | 
-    (curr_meta2$animal.key.is_control & curr_meta2$animal.key.timepoint == -1)
+    (curr_meta2$animal.key.is_control & curr_meta2$animal.key.timepoint == 
+       min(curr_meta2$animal.key.timepoint))
   curr_name = paste(curr_tissue,curr_site,sep=",")
   rnaseq_data_for_difftests[[curr_name]] = list(fpkms = curr_data,
       pipeline_meta = curr_meta1,dmaqc_meta = curr_meta2,
@@ -602,7 +603,7 @@ corrplot(cor(all_ttest_fcs),tl.cex = 0.5,order="hclust")
 hist(all_ttest_pvals)
 colSums(all_ttest_pvals<pval_thr)
 
-# Network prop
+# Network prop or simple distances
 library(dnet);library(foreach);library(doParallel);library(parallel)
 g = igraph::graph_from_edgelist(rat_ppi_entrez)
 nodes = names(V(g))
@@ -615,42 +616,68 @@ res_mat = apply(res_mat,2,function(x,y)tapply(x,INDEX = y,FUN = sum),y=currgenes
 mode(res_mat) = "numeric"
 res_mat = as.data.frame(res_mat,check.names = F)
 g = igraph::subgraph(g,rownames(res_mat))
+res_mat = res_mat[names(V(g)),]
+
 prop_res = dRWRpipeline(res_mat,g,normalise="none",
-                restart=0.5, parallel=FALSE)
-prop_res1 = 1-as.matrix(prop_res$adjpval)
+                restart=0.5, parallel=FALSE,method="direct")
+prop_res1 = as.matrix(prop_res$ratio)
 rownames(prop_res1) = colnames(res_mat)
 colnames(prop_res1) = colnames(res_mat)
 dim(prop_res1)
-corrplot(prop_res1,tl.cex = 0.5,order="hclust")
+hist(prop_res1)
+corrplot(prop_res1,tl.cex = 0.5,order="hclust",is.corr=F)
 
-# An alternative: create an integrated graph first and then propagate
-merged_net = igraph::as_edgelist(g)
-for(nn in colnames(res_mat)){
-  curr_genes = rownames(res_mat)[res_mat[,nn]>0]
-  curr_edges = cbind(rep(nn,length(curr_genes)),curr_genes)
-  print(dim(curr_edges))
-  merged_net = rbind(merged_net,curr_edges)
+# Direct computation of propagations or distances
+prop_matrix = c()
+distance_matrix = c()
+prop_results = dRWR(g,normalise = "none",setSeeds = res_mat,restart = 0.5)
+for(nn1 in colnames(res_mat)){
+  v = as.matrix(res_mat[,nn1])
+  print(table(v))
+  rownames(v) = rownames(res_mat)
+  curr_prop = dRWR(g,normalise = "none",setSeeds = v,restart = 0.5)
+  curr_prop = as.matrix(curr_prop)
+  rownames(curr_prop) = names(V(g))
+  prop_results = cbind(prop_results,curr_prop[,1])
+  new_scores = c()
+  for(nn2 in colnames(res_mat)){
+    set2 = rownames(res_mat)[res_mat[,nn2]>0]
+    new_scores[nn2] = sum(curr_prop[set2,1])
+  }
+  prop_matrix = rbind(prop_matrix,new_scores)
+  rownames(prop_matrix)[nrow(prop_matrix)] = nn1
 }
-merged_g = igraph::graph_from_edgelist(merged_net,directed = F)
-nodes = names(V(merged_g))
-seeds = matrix(0,nrow=length(nodes),ncol=ncol(res_mat))
-rownames(seeds) = nodes
-colnames(seeds) = colnames(res_mat)
-for(nn in names(res_mat)){seeds[nn,nn]=sum(res_mat[,nn])}
-prop_res = dRWR(merged_g,"laplacian",seeds,
-                normalise.affinity.matrix = "quantile",
-                restart = 0.5)
-prop_res = as.matrix(prop_res)
-colnames(prop_res) = colnames(seeds)
-rownames(prop_res) = rownames(seeds)
-prop_res = prop_res[colnames(res_mat),colnames(res_mat)]
-diag(prop_res) = 0
-for(i in 1:nrow(prop_res)){
-	prop_res[i,] = prop_res[i,]/(sum(prop_res[i,]))
-}
+corrplot(prop_matrix,is.corr = F)
 
-corrplot(prop_res,is.corr = F,tl.cex = 0.5,order="hclust")
-corrplot(prop_res,is.corr = F)
+
+# # An alternative: create an integrated graph first and then propagate
+# merged_net = igraph::as_edgelist(g)
+# for(nn in colnames(res_mat)){
+#   curr_genes = rownames(res_mat)[res_mat[,nn]>0]
+#   curr_edges = cbind(rep(nn,length(curr_genes)),curr_genes)
+#   print(dim(curr_edges))
+#   merged_net = rbind(merged_net,curr_edges)
+# }
+# merged_g = igraph::graph_from_edgelist(merged_net,directed = F)
+# nodes = names(V(merged_g))
+# seeds = matrix(0,nrow=length(nodes),ncol=ncol(res_mat))
+# rownames(seeds) = nodes
+# colnames(seeds) = colnames(res_mat)
+# for(nn in names(res_mat)){seeds[nn,nn]=sum(res_mat[,nn])}
+# prop_res = dRWR(merged_g,"laplacian",seeds,
+#                 normalise.affinity.matrix = "quantile",
+#                 restart = 0.5)
+# prop_res = as.matrix(prop_res)
+# colnames(prop_res) = colnames(seeds)
+# rownames(prop_res) = rownames(seeds)
+# prop_res = prop_res[colnames(res_mat),colnames(res_mat)]
+# diag(prop_res) = 0
+# for(i in 1:nrow(prop_res)){
+# 	prop_res[i,] = prop_res[i,]/(sum(prop_res[i,]))
+# }
+# 
+# corrplot(prop_res,is.corr = F,tl.cex = 0.5,order="hclust")
+# corrplot(prop_res,is.corr = F)
 
 ```
 

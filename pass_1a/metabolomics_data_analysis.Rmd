@@ -112,6 +112,10 @@ for(dataset in names(raw_abundance_datasets)){
              row_annot=row_annot,sample_meta=sample_meta)
   metabolomics_parsed_datasets[[dataset]] = obj
 }
+
+save_to_bucket(metabolomics_parsed_datasets,
+               file = "metabolomics_parsed_datasets.RData",
+               bucket = "gs://bic_data_analysis/pass1a/metabolomics/")
 ```
 
 # Pairwise comparisons
@@ -133,6 +137,11 @@ colnames(y) = bid_y
 x = x[,colnames(y)] # make x in the same order as y
 x = t(as.matrix(x))
 y = t(as.matrix(y))
+
+library(pls)
+pls_model = plsr(y~x,ncomp = 5,validation="LOO")
+eval = MSEP(pls_model)
+
 y_pca = prcomp(y)
 plot(y_pca)
 explained_var = y_pca$sdev^2/sum(y_pca$sdev^2)
@@ -149,22 +158,6 @@ x = apply(x,2,regress_out,covs=covs)
 y = apply(y,2,regress_out,covs=covs)
 get_explained_variance_using_PCA(x,y)
 
-library(pls)
-library(gplots)
-pls_model = plsr(y_pca_matrix~x,ncomp = 10)
-r2s = pls::R2(pls_model,ncomp=10)$val[1,,]
-plot(explained_var[1:10],r2s[,2])
-
-```
-
-## Using canonical correlations
-```{r,fig.align="center",out.height='60%',out.width='60%',eval=FALSE}
-cca_res = whitening::scca(x,y,scale=F,lambda.cor = 0.9)
-ccaX = tcrossprod( x, cca_res$WX)
-ccaY = tcrossprod( y, cca_res$WY)
-
-plot(ccaX[,1],ccaX[,2])
-plot(ccaY[,1],ccaY[,2])
 
 ```
 
@@ -193,11 +186,11 @@ for(nn in names(metabolomics_parsed_datasets)){
   print(sum(!is.element(bid_y,set=bid_x))) # should be zero
   colnames(x) = bid_x
   x = x[,bid_y]
-  x = apply(x,1,regress_out,covs=covs)
-  x = t(x)
-  cvs = apply(x,1,CV)
-  print(table(cvs>0.5))
-  x = x[cvs>0.5,]
+  # x = apply(x,1,regress_out,covs=covs)
+  # x = t(x)
+  # cvs = apply(x,1,CV)
+  # print(table(cvs>0.5))
+  # x = x[cvs>0.5,]
   # pcax = t(prcomp(t(x),scale. = F)$x[,1:10])
   cov_matrices[[nn]] = cov(x)
   cor_matrices[[nn]] = cor(x)
@@ -206,22 +199,22 @@ sapply(cor_matrices,dim)
 library('evolqg');library(corrplot)
 mantel_tests= MantelCor(cor_matrices)
 mcors= MatrixCor(cor_matrices)
+mcors = as.matrix(forceSymmetric(mcors,uplo="L"))
+mantel_tests = as.matrix(
+  forceSymmetric(mantel_tests$probabilities,uplo = "L"))
 # diag(mantel_tests)=0
-corrplot(t(mcors),p.mat=t(mantel_tests$probabilities),type="upper",
+ord = corrplot(t(mcors),order="hclust")
+ord = rownames(ord)
+corrplot(mcors[ord,ord],p.mat=mantel_tests[ord,ord],
          insig = "label_sig",method="shade",
          sig.level = c(.0001, .001, .01),
-         pch.cex = .9, pch.col = "black",tl.cex=0.6)
-corrplot(mcors,type="lower",
-         insig = "label_sig",method="shade",
-         sig.level = c(.0001, .001, .01),
-         pch.cex = .9, pch.col = "black",tl.cex=0.6,
-         order="hclust")
-rs_res = RandomSkewers(cor_matrices)
-corrplot(rs_res$correlations,
-         p.mat=mantel_tests$probabilities,type="lower",
-         insig = "label_sig",method="shade",
-         sig.level = c(.0001, .001, .01),
-         pch.cex = .9, pch.col = "black",tl.cex=0.6)
+         pch.cex = .9, pch.col = "black")
+# rs_res = RandomSkewers(cor_matrices)
+# corrplot(rs_res$correlations,
+#          p.mat=mantel_tests$probabilities,type="lower",
+#          insig = "label_sig",method="shade",
+#          sig.level = c(.0001, .001, .01),
+#          pch.cex = .9, pch.col = "black",tl.cex=0.6)
 
 library(psych)
 
@@ -242,6 +235,43 @@ corrplot(threshold_comp,is.corr = F,order="hclust")
 ```
 
 # Integrarion with RNAseq
+
+```{r}
+rnaseq_data_for_difftests = load_from_bucket(
+  "rnaseq_data_for_difftests.RData",
+  "gs://bic_data_analysis/pass1a/rnaseq/"
+)[[1]]
+met_vs_rnaseq_cors = c()
+for(nn in names(rnaseq_data_for_difftests)){
+  d = rnaseq_data_for_difftests[[nn]]$fpkms
+  covs = rnaseq_data_for_difftests[[nn]]$dmaqc_meta[,cov_cols]
+  
+  cvs = apply(d,1,CV)
+  print(table(cvs>0.25))
+  x = d[cvs>0.25,]
+  # x = apply(x,1,regress_out,covs=covs)
+  # x = t(x)
+  
+  bid_x = sapply(colnames(x),substr,1,5)
+  print(sum(!is.element(bid_y,set=bid_x))) # should be zero
+  colnames(x) = bid_x
+  x = x[,bid_y]
+  
+  curr_cors = cor(x)
+  v = c()
+  for(nn2 in names(cor_matrices)){
+    v[nn2] = MatrixCor(curr_cors,cor_matrices[[nn2]])
+  }
+  met_vs_rnaseq_cors = rbind(met_vs_rnaseq_cors,v)
+  rownames(met_vs_rnaseq_cors)[nrow(met_vs_rnaseq_cors)] = nn
+}
+library(gplots)
+heatmap.2(t(met_vs_rnaseq_cors),
+          trace="none",scale=NULL,mar=c(15,15),
+          key.xlab = "Correlation",
+          col=redblue(200), breaks=seq(-1,1,0.01))
+
+```
 
 # Looking at metabolite overlap
 

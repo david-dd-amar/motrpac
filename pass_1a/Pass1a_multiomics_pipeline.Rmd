@@ -1,0 +1,145 @@
+---
+title: "Pass1a_multiomics_pipeline.Rmd"
+author: "David Amar"
+date: "7/15/2019"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Set the environment
+
+```{r}
+library(data.table);library(DESeq2)
+library(preprocessCore);library(ggplot2)
+library(corrplot)
+# load our helper functions
+source("~/Desktop/repos/motrpac/tools/preprocessing_helper_functions.R")
+source("~/Desktop/repos/motrpac/tools/association_analysis_functions.R")
+source("~/Desktop/repos/motrpac/tools/gcp_functions.R")
+source("~/Desktop/repos/motrpac/tools/enrichment_analysis_methods.R")
+# source("~/Desktop/repos/motrpac/tools/rat_data.R")
+
+merged_dmaqc_data =  load_from_bucket("merged_dmaqc_data.RData",
+    "gs://bic_data_analysis/pass1a/pheno_dmaqc/",F)
+merged_dmaqc_data = merged_dmaqc_data[[1]]
+merged_dmaqc_data$animal.key.timepoint[merged_dmaqc_data$animal.key.timepoint==-1
+    & !merged_dmaqc_data$animal.key.is_control] = 0
+table(merged_dmaqc_data$animal.key.timepoint)
+rownames(merged_dmaqc_data) = merged_dmaqc_data$viallabel
+```
+
+## Load datasets
+
+```{r}
+# RNAseq
+rnaseq_datasets = load_from_bucket(
+  "rnaseq_data_for_difftests.RData",
+  "gs://bic_data_analysis/pass1a/rnaseq/"
+)[[1]]
+# Metabolomics
+metabolomics_datasets = load_from_bucket(
+  "metabolomics_parsed_datasets.RData",
+  "gs://bic_data_analysis/pass1a/metabolomics/"
+)[[1]]
+
+```
+
+## Factorization
+
+```{r}
+clean_by_level<-function(x,value_thr,perc){
+  pcts = rowSums(x<value_thr)
+  pcts = pcts/ncol(x)
+  to_rem = pcts > perc
+  return(x[!to_rem,])
+}
+clean_by_cv <-function(x,thr){
+  cvs = (apply(x,1,sd)/apply(x,1,mean))
+  return(x[cvs>thr,])
+}
+
+tissue = "muscle"
+tissue_rnaseq = rnaseq_datasets$`gastrocnemius,MSSM`$fpkms
+tissue_rnaseq = clean_by_level(tissue_rnaseq,1,0.9)
+tissue_rnaseq = clean_by_cv(tissue_rnaseq,0.1)
+multiomics_samplemeta = merged_dmaqc_data[colnames(tissue_rnaseq),]
+bids = as.character(merged_dmaqc_data[colnames(tissue_rnaseq),"bid"])
+rownames(multiomics_samplemeta) = bids
+colnames(tissue_rnaseq) = bids
+met_tissue_datasets = names(metabolomics_datasets)[grepl(tissue,
+  names(metabolomics_datasets),ignore.case = T)]
+multiomics_X = tissue_rnaseq
+multiomics_type = rep("rnaseq",nrow(tissue_rnaseq))
+for(dataset in met_tissue_datasets){
+  d = metabolomics_datasets[[dataset]]$sample_data
+  d = clean_by_cv(d,0.25)
+  if(is.null(dim(d))){next}
+  currbids = as.character(merged_dmaqc_data[colnames(d),"bid"])
+  colnames(d) = currbids
+  multiomics_X = rbind(multiomics_X,d[,bids])
+  multiomics_type = c(multiomics_type,rep(dataset,nrow(d)))
+}
+dim(multiomics_X)
+table(multiomics_type)
+
+multiomics_naive_pca = prcomp(t(multiomics_X),scale=T)
+df = data.frame(multiomics_naive_pca$x[,1:10],
+                timepoint = as.factor(multiomics_samplemeta$animal.key.timepoint),
+                sex = as.factor(multiomics_samplemeta$animal.registration.sex))
+ggplot(df,aes(x=PC1, y=PC2,shape=sex,color=timepoint)) + 
+  geom_point(size=2) + ggtitle("Naive PCA: PCs 1 and 2") + 
+  theme(plot.title = element_text(hjust = 0.5))
+ggplot(df,aes(x=PC3, y=PC4,shape=sex,color=timepoint)) + 
+  geom_point(size=2) + ggtitle("Naive PCA: PCs 3 and 4") + 
+  theme(plot.title = element_text(hjust = 0.5))
+
+boxplot(PC1~sex:timepoint,data=df)
+
+# Autoencoders
+library(tensorflow)
+library(keras)
+instal_keras(method="conda")
+install_tensorflow(version = "1.12",method = "conda")
+# set training data
+x_train <- t(as.matrix(multiomics_X))
+
+# set model
+model <- keras_model_sequential()
+model %>%
+  layer_dense(units = 6, activation = "tanh", input_shape = ncol(x_train)) %>%
+  layer_dense(units = 2, activation = "tanh", name = "bottleneck") %>%
+  layer_dense(units = 6, activation = "tanh") %>%
+  layer_dense(units = ncol(x_train))
+
+# view model layers
+summary(model)
+
+# compile model
+model %>% compile(
+  loss = "mean_squared_error", 
+  optimizer = "adam"
+)
+
+# fit model
+model %>% fit(
+  x = x_train, 
+  y = x_train, 
+  epochs = 2000,
+  verbose = 0
+)
+
+# evaluate the performance of the model
+mse.ae2 <- evaluate(model, x_train, x_train)
+mse.ae2
+##        loss 
+## 0.009725631
+# extract the bottleneck layer
+intermediate_layer_model <- keras_model(inputs = model$input, outputs = get_layer(model, "bottleneck")$output)
+intermediate_output <- predict(intermediate_layer_model, x_train)
+df = data.frame(PC1 = intermediate_output[,1], PC2 = intermediate_output[,2])
+ggplot(df, aes(x = PC1, y = PC2, col = ais$sex)) + geom_point()
+```
+
