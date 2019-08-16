@@ -8,7 +8,14 @@ output:
 
 ```{r}
 # Set the working directory to the folder with the data
-dmaqc_data_dir = "/Users/David/Desktop/MoTrPAC/data/pass_1a/dmaqc_pheno/"
+# older:
+# dmaqc_data_dir = "/Users/David/Desktop/MoTrPAC/data/pass_1a/dmaqc_pheno/v1"
+# dictionary path
+# dmaqc_dict_dir = "/Users/David/Desktop/MoTrPAC/data/pass_1a/dmaqc_pheno/dictionary/"
+# official rlease:
+dmaqc_data_dir = "/Users/David/Desktop/MoTrPAC/data/pass_1a/dmaqc_pheno/official/3-Data_Sets/"
+# dictionary path
+dmaqc_dict_dir = "/Users/David/Desktop/MoTrPAC/data/pass_1a/dmaqc_pheno/official/1-Data_Dictionary/"
 all_csvs = list.files(dmaqc_data_dir,full.names = T) # get all files in dir
 all_csvs = all_csvs[grepl(".csv$",all_csvs)] # make sure we take csv only
 # read all files
@@ -17,8 +24,6 @@ for(fname in all_csvs){
   csv_data[[fname]] = read.csv(fname,stringsAsFactors = F)
 }# sapply(csv_data,dim) # check the dimensions of the different datasets
 
-# dictionary path
-dmaqc_dict_dir = "/Users/David/Desktop/MoTrPAC/data/pass_1a/dmaqc_pheno/dictionary/"
 all_dict_csvs = list.files(dmaqc_dict_dir,full.names = T) # get all files in dir
 all_dict_csvs = all_dict_csvs[grepl(".csv$",all_dict_csvs)] # make sure we take csv only
 # read all files
@@ -389,7 +394,8 @@ parse_timepoint<-function(x){
   arrs = strsplit(x,split=" ")
   tps = sapply(arrs,function(x)x[3])
   tps = as.numeric(tps)
-  tps[is.na(tps)]=-1
+  tps[is.na(tps)]=0 # IPEs are marked as 0
+  # tps[grepl("IPE",x)] = 0
   return(tps)
 }
 
@@ -428,7 +434,162 @@ ggplot(df,
 dist_lm2 = lm(acute.test.distance~acute.test.howlongshock_seconds+
                 as.factor(animal.key.timepoint)+animal.registration.sex,data=df)
 print("No significant linear association between the time points and distance:")
-summary(dist_lm2)
+# summary(dist_lm2)
+```
+
+## QC tests and time definitions
+
+```{r}
+merged_dmaqc_data$tissue = merged_dmaqc_data$sampletypedescription
+
+# Define three time intervals:
+# I1: complete to death
+# I2: death to collection
+# I3: collection to freeze
+# These are defined in hours:
+I1 = as.difftime(merged_dmaqc_data$specimen.collection.t_death) -
+    as.difftime(merged_dmaqc_data$acute.test.t_complete)
+I2 = as.difftime(merged_dmaqc_data$specimen.processing.t_collection) -
+    as.difftime(merged_dmaqc_data$specimen.collection.t_death)
+I3 = as.difftime(merged_dmaqc_data$specimen.processing.t_freeze) -
+    as.difftime(merged_dmaqc_data$specimen.processing.t_collection)
+I1 = as.numeric(I1);I2 = as.numeric(I2);I3 = as.numeric(I3)
+daysdiff = merged_dmaqc_data$acute.test.days_visit - 
+    merged_dmaqc_data$acute.test.days_start
+I1 = I1 + 24*daysdiff
+# Change to minutes
+I1 = I1*60
+I2 = I2*60
+I3 = I3*60
+merged_dmaqc_data$calculated.variables.time_complete_to_death_min = I1
+merged_dmaqc_data$calculated.variables.time_death_to_collect_min = I2
+merged_dmaqc_data$calculated.variables.time_collect_to_freeze_min = I3
+
+# look at time vs sex diffs in each tissue
+tmpx = cbind(
+  merged_dmaqc_data$labelid,
+  merged_dmaqc_data$specimen.processing.sampletypedescription,
+  merged_dmaqc_data$calculated.variables.time_complete_to_death_min,
+  merged_dmaqc_data$calculated.variables.time_death_to_collect_min,
+  merged_dmaqc_data$calculated.variables.time_collect_to_freeze_min,
+  merged_dmaqc_data$animal.registration.sex,
+  merged_dmaqc_data$animal.key.timepoint,
+  merged_dmaqc_data$acute.test.weight
+  
+)
+colnames(tmpx) = c(
+  "labelid",
+  "tissue",
+  "time_complete_to_death",
+  "time_death_to_collect",
+  "time_collect_to_freeze",
+  "sex",
+  "timepoint",
+  "weight"
+)
+tmpx = data.frame(tmpx)
+for(j in 3:ncol(tmpx)){tmpx[[j]]=as.numeric(as.character(tmpx[[j]]))}
+par(mfrow=c(3,3))
+tissue_sex_pvals = c()
+for(tissue in unique(tmpx$tissue)){
+  df = tmpx[tmpx$tissue==tissue,]
+  df = unique(df)
+  print(dim(df))
+  df$sex = df$sex-1
+  
+  if(any(is.na(df$time_collect_to_freeze))){next}
+  if(length(unique(df$sex))<2){next}
+  
+  curr_lm = summary(glm(
+    sex~time_collect_to_freeze + time_death_to_collect,data=df,
+    family = "binomial"))
+  pval = curr_lm$coefficients[2,4]
+  beta = curr_lm$coefficients[2,2]
+  
+  tissue_sex_pvals = rbind(tissue_sex_pvals,
+     c(curr_lm$coefficients[2,4],curr_lm$coefficients[3,4],nrow(df)))
+  rownames(tissue_sex_pvals)[nrow(tissue_sex_pvals)] = tissue
+  print(paste(tissue,beta,pval))
+}
+
+tissue_log_ps = -log(tissue_sex_pvals[,1:2],base=10)
+colnames(tissue_log_ps) = c(
+  "collect_to_freeze",
+  "death_to_collect"
+)
+plt = barplot(t(tissue_log_ps),beside = T,xaxt="n",legend=T)
+text(colMeans(plt), par("usr")[3], labels = rownames(tissue_log_ps), 
+     srt = 45, adj = c(1.1,1.1), xpd = T, cex=0.6)
+abline(h = 2,lwd=2,col="red",lty=2)
+
+for(tissue in unique(tmpx$tissue)){
+  df = tmpx
+  df = df[grepl(tissue,df$tissue,ignore.case = T),]
+  if(all(is.na(df$time_collect_to_freeze))){next}
+  boxplot(time_death_to_collect~sex,data=df,main=tissue)
+}
+```
+
+```{r,eval=FALSE,echo=FALSE}
+# # reproduce the results directly from the specimen data
+# spec_data = read.csv("~/Desktop/MoTrPAC/data/pass_1a/dmaqc_pheno/QC_EXPORT_TXFR0.01_1A.6M_DS_MoTrPAC.PASS_Animal.Specimen.Processing.csv",stringsAsFactors = F)
+# spec_collection = read.csv("~/Desktop/MoTrPAC/data/pass_1a/dmaqc_pheno/QC_EXPORT_TXFR0.01_1A.6M_DS_MoTrPAC.PASS_Animal.Specimen.Collection.csv",stringsAsFactors = F)
+# animal_data = read.csv("~/Desktop/MoTrPAC/data/pass_1a/dmaqc_pheno/QC_EXPORT_TXFR0.01_1A.6M_DS_MoTrPAC.PASS_Animal.Registration.csv",stringsAsFactors = F)
+# acute_data = read.csv("~/Desktop/MoTrPAC/data/pass_1a/dmaqc_pheno/QC_EXPORT_TXFR0.01_1A.6M_DS_MoTrPAC.PASS_Animal.Acute.Test.csv",stringsAsFactors = F)
+# animal_data2 = read.csv("~/Desktop/MoTrPAC/data/pass_1a/dmaqc_pheno/QC_EXPORT_TXFR0.01_1A.6M_DS_MoTrPAC.PASS_Animal.Key.csv",stringsAsFactors = F)
+# # Limit to gastroc data
+# spec_data = spec_data[grepl("gastroc",spec_data$sampletypedescription,ignore.case = T),]
+# # Make all ids PIDs
+# rownames(spec_data) = as.character(spec_data$pid)
+# rownames(animal_data) = as.character(animal_data$pid)
+# rownames(spec_collection) = as.character(spec_collection$pid)
+# rownames(acute_data) = as.character(acute_data$pid)
+# rownames(animal_data2) = animal_data2$pid
+# # Intersection 
+# inds = intersect(rownames(spec_data),rownames(animal_data))
+# spec_data = spec_data[inds,]
+# animal_data = animal_data[inds,]
+# acute_data = acute_data[inds,]
+# spec_collection = spec_collection[inds,]
+# animal_data2 = animal_data2[inds,]
+# 
+# # three time intervals:
+# # I1: complete to death
+# # I2: death to collection
+# # I3: collection to freeze
+# I1 = as.difftime(spec_collection$t_death) - as.difftime(acute_data$t_complete)
+# I2 = as.difftime(spec_data$t_collection) - as.difftime(spec_collection$t_death)
+# I3 = as.difftime(spec_data$t_freeze)-as.difftime(spec_data$t_collection)
+# I1 = as.numeric(I1)
+# I2 = as.numeric(I2)
+# I3 = as.numeric(I3)
+# sex = animal_data$sex
+# daysdiff = acute_data$days_visit - acute_data$days_start
+# I1 = I1 + 24*daysdiff
+# # Change to minutes
+# I1 = I1*60
+# I2 = I2*60
+# I3 = I3*60
+# 
+# group = animal_data2$ANIRandGroup
+# group = gsub("Control","C",group)
+# group = gsub("Exercise","E",group)
+# 
+# # Sex vs times
+# par(mfrow=c(1,3))
+# boxplot(log(I1)~sex,main = "I1: death-complete",ylab = "minutes(log)",xlab = "sex")
+# boxplot(I2~sex,main = "I2: collection-death",xlab = "sex",ylab="minutes")
+# boxplot(I3~sex,main = "I3: freeze-collection",xlab = "sex",ylab="minutes")
+# # Study group vs times
+# par(mfrow=c(3,1))
+# boxplot(log(I1)~group,main = "I1: death-complete",las=2,xlab="",ylab="minutes(log)")
+# boxplot(I2~group,main = "I2: collection-death",las=2,xlab="",ylab="minutes")
+# boxplot(I3~group,main = "I3: freeze-collection",las=2,xlab="",ylab="minutes")
+# 
+# kruskal.test(I1,group)$p.value
+# kruskal.test(I2,group)$p.value
+# kruskal.test(I3,group)$p.value
+
 ```
 
 # Save the merged datasets in the cloud
@@ -436,25 +597,28 @@ summary(dist_lm2)
 ```{r}
 # To see the bucket list
 # gsutil ls -p motrpac-portal-dev
-write.table(merged_dmaqc_data,file="merged_dmaqc_data.txt",
+currdate = Sys.Date()
+txtname = paste("merged_dmaqc_data",currdate,".txt",sep="")
+rdataname = paste("merged_dmaqc_data",currdate,".RData",sep="")
+dictfname = paste("merged_column_dictionary",currdate,".txt",sep="")
+write.table(merged_dmaqc_data,file=txtname,
             quote = F,sep="\t",row.names = F)
-save(merged_dmaqc_data,file="merged_dmaqc_data.RData")
-write.table(merged_column_dictionary,file="merged_column_dictionary.txt",
+save(merged_dmaqc_data,file=rdataname)
+write.table(merged_column_dictionary,file=dictfname,
             quote = F,sep="\t",row.names = F)
-system(paste("~/google-cloud-sdk/bin/gsutil", "cp merged_dmaqc_data.txt",
+system(paste("~/google-cloud-sdk/bin/gsutil cp", txtname,
              "gs://bic_data_analysis/pass1a/pheno_dmaqc/"))
-system(paste("~/google-cloud-sdk/bin/gsutil", "cp merged_dmaqc_data.RData",
+system(paste("~/google-cloud-sdk/bin/gsutil cp", rdataname,
              "gs://bic_data_analysis/pass1a/pheno_dmaqc/"))
-system(paste("~/google-cloud-sdk/bin/gsutil", "cp merged_column_dictionary.txt",
+system(paste("~/google-cloud-sdk/bin/gsutil cp", dictfname,
              "gs://bic_data_analysis/pass1a/pheno_dmaqc/"))
-system(paste("~/google-cloud-sdk/bin/gsutil", 
-             "cp ~/Desktop/repos/motrpac/animal_data/README.txt",
+system(paste("~/google-cloud-sdk/bin/gsutil cp", 
+             "~/Desktop/repos/motrpac/animal_data/README.txt",
              "gs://bic_data_analysis/pass1a/pheno_dmaqc/"))
 
 system("rm merged_dmaqc_data.txt")
 system("rm merged_dmaqc_data.RData")
 system("rm merged_column_dictionary.txt")
 ```
-
 
 

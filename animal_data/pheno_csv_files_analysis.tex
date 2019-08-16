@@ -105,21 +105,22 @@
 \usepackage{titling}
 
 % Create subtitle command for use in maketitle
-\newcommand{\subtitle}[1]{
+\providecommand{\subtitle}[1]{
   \posttitle{
     \begin{center}\large#1\end{center}
     }
 }
 
 \setlength{\droptitle}{-2em}
-  \title{PASS1A DMAQC data: analysis by BIC}
-  \pretitle{\vspace{\droptitle}\centering\huge}
-  \posttitle{\par}
-  \author{}
-  \preauthor{}\postauthor{}
-  \date{}
-  \predate{}\postdate{}
 
+  \title{PASS1A DMAQC data: analysis by BIC}
+    \pretitle{\vspace{\droptitle}\centering\huge}
+  \posttitle{\par}
+    \author{}
+    \preauthor{}\postauthor{}
+    \date{}
+    \predate{}\postdate{}
+  
 
 \begin{document}
 \maketitle
@@ -127,7 +128,14 @@
 \begin{Shaded}
 \begin{Highlighting}[]
 \CommentTok{# Set the working directory to the folder with the data}
-\NormalTok{dmaqc_data_dir =}\StringTok{ "/Users/David/Desktop/MoTrPAC/data/pass_1a/dmaqc_pheno/"}
+\CommentTok{# older:}
+\CommentTok{# dmaqc_data_dir = "/Users/David/Desktop/MoTrPAC/data/pass_1a/dmaqc_pheno/v1"}
+\CommentTok{# dictionary path}
+\CommentTok{# dmaqc_dict_dir = "/Users/David/Desktop/MoTrPAC/data/pass_1a/dmaqc_pheno/dictionary/"}
+\CommentTok{# official rlease:}
+\NormalTok{dmaqc_data_dir =}\StringTok{ "/Users/David/Desktop/MoTrPAC/data/pass_1a/dmaqc_pheno/official/3-Data_Sets/"}
+\CommentTok{# dictionary path}
+\NormalTok{dmaqc_dict_dir =}\StringTok{ "/Users/David/Desktop/MoTrPAC/data/pass_1a/dmaqc_pheno/official/1-Data_Dictionary/"}
 \NormalTok{all_csvs =}\StringTok{ }\KeywordTok{list.files}\NormalTok{(dmaqc_data_dir,}\DataTypeTok{full.names =}\NormalTok{ T) }\CommentTok{# get all files in dir}
 \NormalTok{all_csvs =}\StringTok{ }\NormalTok{all_csvs[}\KeywordTok{grepl}\NormalTok{(}\StringTok{".csv$"}\NormalTok{,all_csvs)] }\CommentTok{# make sure we take csv only}
 \CommentTok{# read all files}
@@ -136,8 +144,6 @@
 \NormalTok{  csv_data[[fname]] =}\StringTok{ }\KeywordTok{read.csv}\NormalTok{(fname,}\DataTypeTok{stringsAsFactors =}\NormalTok{ F)}
 \NormalTok{\}}\CommentTok{# sapply(csv_data,dim) # check the dimensions of the different datasets}
 
-\CommentTok{# dictionary path}
-\NormalTok{dmaqc_dict_dir =}\StringTok{ "/Users/David/Desktop/MoTrPAC/data/pass_1a/dmaqc_pheno/dictionary/"}
 \NormalTok{all_dict_csvs =}\StringTok{ }\KeywordTok{list.files}\NormalTok{(dmaqc_dict_dir,}\DataTypeTok{full.names =}\NormalTok{ T) }\CommentTok{# get all files in dir}
 \NormalTok{all_dict_csvs =}\StringTok{ }\NormalTok{all_dict_csvs[}\KeywordTok{grepl}\NormalTok{(}\StringTok{".csv$"}\NormalTok{,all_dict_csvs)] }\CommentTok{# make sure we take csv only}
 \CommentTok{# read all files}
@@ -813,7 +819,8 @@ time point of each animal in the exercise group.
 \NormalTok{  arrs =}\StringTok{ }\KeywordTok{strsplit}\NormalTok{(x,}\DataTypeTok{split=}\StringTok{" "}\NormalTok{)}
 \NormalTok{  tps =}\StringTok{ }\KeywordTok{sapply}\NormalTok{(arrs,}\ControlFlowTok{function}\NormalTok{(x)x[}\DecValTok{3}\NormalTok{])}
 \NormalTok{  tps =}\StringTok{ }\KeywordTok{as.numeric}\NormalTok{(tps)}
-\NormalTok{  tps[}\KeywordTok{is.na}\NormalTok{(tps)]=}\OperatorTok{-}\DecValTok{1}
+\NormalTok{  tps[}\KeywordTok{is.na}\NormalTok{(tps)]=}\DecValTok{0} \CommentTok{# IPEs are marked as 0}
+  \CommentTok{# tps[grepl("IPE",x)] = 0}
   \KeywordTok{return}\NormalTok{(tps)}
 \NormalTok{\}}
 
@@ -885,49 +892,219 @@ time point of each animal in the exercise group.
 
 \begin{Shaded}
 \begin{Highlighting}[]
-\KeywordTok{summary}\NormalTok{(dist_lm2)}
+\CommentTok{# summary(dist_lm2)}
+\end{Highlighting}
+\end{Shaded}
+
+\subsection{QC tests and time
+definitions}\label{qc-tests-and-time-definitions}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\NormalTok{merged_dmaqc_data}\OperatorTok{$}\NormalTok{tissue =}\StringTok{ }\NormalTok{merged_dmaqc_data}\OperatorTok{$}\NormalTok{sampletypedescription}
+
+\CommentTok{# Define three time intervals:}
+\CommentTok{# I1: complete to death}
+\CommentTok{# I2: death to collection}
+\CommentTok{# I3: collection to freeze}
+\CommentTok{# These are defined in hours:}
+\NormalTok{I1 =}\StringTok{ }\KeywordTok{as.difftime}\NormalTok{(merged_dmaqc_data}\OperatorTok{$}\NormalTok{specimen.collection.t_death) }\OperatorTok{-}
+\StringTok{    }\KeywordTok{as.difftime}\NormalTok{(merged_dmaqc_data}\OperatorTok{$}\NormalTok{acute.test.t_complete)}
+\NormalTok{I2 =}\StringTok{ }\KeywordTok{as.difftime}\NormalTok{(merged_dmaqc_data}\OperatorTok{$}\NormalTok{specimen.processing.t_collection) }\OperatorTok{-}
+\StringTok{    }\KeywordTok{as.difftime}\NormalTok{(merged_dmaqc_data}\OperatorTok{$}\NormalTok{specimen.collection.t_death)}
+\NormalTok{I3 =}\StringTok{ }\KeywordTok{as.difftime}\NormalTok{(merged_dmaqc_data}\OperatorTok{$}\NormalTok{specimen.processing.t_freeze) }\OperatorTok{-}
+\StringTok{    }\KeywordTok{as.difftime}\NormalTok{(merged_dmaqc_data}\OperatorTok{$}\NormalTok{specimen.processing.t_collection)}
+\NormalTok{I1 =}\StringTok{ }\KeywordTok{as.numeric}\NormalTok{(I1);I2 =}\StringTok{ }\KeywordTok{as.numeric}\NormalTok{(I2);I3 =}\StringTok{ }\KeywordTok{as.numeric}\NormalTok{(I3)}
+\NormalTok{daysdiff =}\StringTok{ }\NormalTok{merged_dmaqc_data}\OperatorTok{$}\NormalTok{acute.test.days_visit }\OperatorTok{-}\StringTok{ }
+\StringTok{    }\NormalTok{merged_dmaqc_data}\OperatorTok{$}\NormalTok{acute.test.days_start}
+\NormalTok{I1 =}\StringTok{ }\NormalTok{I1 }\OperatorTok{+}\StringTok{ }\DecValTok{24}\OperatorTok{*}\NormalTok{daysdiff}
+\CommentTok{# Change to minutes}
+\NormalTok{I1 =}\StringTok{ }\NormalTok{I1}\OperatorTok{*}\DecValTok{60}
+\NormalTok{I2 =}\StringTok{ }\NormalTok{I2}\OperatorTok{*}\DecValTok{60}
+\NormalTok{I3 =}\StringTok{ }\NormalTok{I3}\OperatorTok{*}\DecValTok{60}
+\NormalTok{merged_dmaqc_data}\OperatorTok{$}\NormalTok{calculated.variables.time_complete_to_death_min =}\StringTok{ }\NormalTok{I1}
+\NormalTok{merged_dmaqc_data}\OperatorTok{$}\NormalTok{calculated.variables.time_death_to_collect_min =}\StringTok{ }\NormalTok{I2}
+\NormalTok{merged_dmaqc_data}\OperatorTok{$}\NormalTok{calculated.variables.time_collect_to_freeze_min =}\StringTok{ }\NormalTok{I3}
+
+\CommentTok{# look at time vs sex diffs in each tissue}
+\NormalTok{tmpx =}\StringTok{ }\KeywordTok{cbind}\NormalTok{(}
+\NormalTok{  merged_dmaqc_data}\OperatorTok{$}\NormalTok{labelid,}
+\NormalTok{  merged_dmaqc_data}\OperatorTok{$}\NormalTok{specimen.processing.sampletypedescription,}
+\NormalTok{  merged_dmaqc_data}\OperatorTok{$}\NormalTok{calculated.variables.time_complete_to_death_min,}
+\NormalTok{  merged_dmaqc_data}\OperatorTok{$}\NormalTok{calculated.variables.time_death_to_collect_min,}
+\NormalTok{  merged_dmaqc_data}\OperatorTok{$}\NormalTok{calculated.variables.time_collect_to_freeze_min,}
+\NormalTok{  merged_dmaqc_data}\OperatorTok{$}\NormalTok{animal.registration.sex,}
+\NormalTok{  merged_dmaqc_data}\OperatorTok{$}\NormalTok{animal.key.timepoint,}
+\NormalTok{  merged_dmaqc_data}\OperatorTok{$}\NormalTok{acute.test.weight}
+  
+\NormalTok{)}
+\KeywordTok{colnames}\NormalTok{(tmpx) =}\StringTok{ }\KeywordTok{c}\NormalTok{(}
+  \StringTok{"labelid"}\NormalTok{,}
+  \StringTok{"tissue"}\NormalTok{,}
+  \StringTok{"time_complete_to_death"}\NormalTok{,}
+  \StringTok{"time_death_to_collect"}\NormalTok{,}
+  \StringTok{"time_collect_to_freeze"}\NormalTok{,}
+  \StringTok{"sex"}\NormalTok{,}
+  \StringTok{"timepoint"}\NormalTok{,}
+  \StringTok{"weight"}
+\NormalTok{)}
+\NormalTok{tmpx =}\StringTok{ }\KeywordTok{data.frame}\NormalTok{(tmpx)}
+\ControlFlowTok{for}\NormalTok{(j }\ControlFlowTok{in} \DecValTok{3}\OperatorTok{:}\KeywordTok{ncol}\NormalTok{(tmpx))\{tmpx[[j]]=}\KeywordTok{as.numeric}\NormalTok{(}\KeywordTok{as.character}\NormalTok{(tmpx[[j]]))\}}
+\KeywordTok{par}\NormalTok{(}\DataTypeTok{mfrow=}\KeywordTok{c}\NormalTok{(}\DecValTok{3}\NormalTok{,}\DecValTok{3}\NormalTok{))}
+\NormalTok{tissue_sex_pvals =}\StringTok{ }\KeywordTok{c}\NormalTok{()}
+\ControlFlowTok{for}\NormalTok{(tissue }\ControlFlowTok{in} \KeywordTok{unique}\NormalTok{(tmpx}\OperatorTok{$}\NormalTok{tissue))\{}
+\NormalTok{  df =}\StringTok{ }\NormalTok{tmpx[tmpx}\OperatorTok{$}\NormalTok{tissue}\OperatorTok{==}\NormalTok{tissue,]}
+\NormalTok{  df =}\StringTok{ }\KeywordTok{unique}\NormalTok{(df)}
+  \KeywordTok{print}\NormalTok{(}\KeywordTok{dim}\NormalTok{(df))}
+\NormalTok{  df}\OperatorTok{$}\NormalTok{sex =}\StringTok{ }\NormalTok{df}\OperatorTok{$}\NormalTok{sex}\OperatorTok{-}\DecValTok{1}
+  
+  \ControlFlowTok{if}\NormalTok{(}\KeywordTok{any}\NormalTok{(}\KeywordTok{is.na}\NormalTok{(df}\OperatorTok{$}\NormalTok{time_collect_to_freeze)))\{}\ControlFlowTok{next}\NormalTok{\}}
+  \ControlFlowTok{if}\NormalTok{(}\KeywordTok{length}\NormalTok{(}\KeywordTok{unique}\NormalTok{(df}\OperatorTok{$}\NormalTok{sex))}\OperatorTok{<}\DecValTok{2}\NormalTok{)\{}\ControlFlowTok{next}\NormalTok{\}}
+  
+\NormalTok{  curr_lm =}\StringTok{ }\KeywordTok{summary}\NormalTok{(}\KeywordTok{glm}\NormalTok{(}
+\NormalTok{    sex}\OperatorTok{~}\NormalTok{time_collect_to_freeze }\OperatorTok{+}\StringTok{ }\NormalTok{time_death_to_collect,}\DataTypeTok{data=}\NormalTok{df,}
+    \DataTypeTok{family =} \StringTok{"binomial"}\NormalTok{))}
+\NormalTok{  pval =}\StringTok{ }\NormalTok{curr_lm}\OperatorTok{$}\NormalTok{coefficients[}\DecValTok{2}\NormalTok{,}\DecValTok{4}\NormalTok{]}
+\NormalTok{  beta =}\StringTok{ }\NormalTok{curr_lm}\OperatorTok{$}\NormalTok{coefficients[}\DecValTok{2}\NormalTok{,}\DecValTok{2}\NormalTok{]}
+  
+\NormalTok{  tissue_sex_pvals =}\StringTok{ }\KeywordTok{rbind}\NormalTok{(tissue_sex_pvals,}
+     \KeywordTok{c}\NormalTok{(curr_lm}\OperatorTok{$}\NormalTok{coefficients[}\DecValTok{2}\NormalTok{,}\DecValTok{4}\NormalTok{],curr_lm}\OperatorTok{$}\NormalTok{coefficients[}\DecValTok{3}\NormalTok{,}\DecValTok{4}\NormalTok{],}\KeywordTok{nrow}\NormalTok{(df)))}
+  \KeywordTok{rownames}\NormalTok{(tissue_sex_pvals)[}\KeywordTok{nrow}\NormalTok{(tissue_sex_pvals)] =}\StringTok{ }\NormalTok{tissue}
+  \KeywordTok{print}\NormalTok{(}\KeywordTok{paste}\NormalTok{(tissue,beta,pval))}
+\NormalTok{\}}
 \end{Highlighting}
 \end{Shaded}
 
 \begin{verbatim}
-## 
-## Call:
-## lm(formula = acute.test.distance ~ acute.test.howlongshock_seconds + 
-##     as.factor(animal.key.timepoint) + animal.registration.sex, 
-##     data = df)
-## 
-## Residuals:
-##      Min       1Q   Median       3Q      Max 
-## -19.7934  -0.4604   0.6045   1.3591   5.7995 
-## 
-## Coefficients:
-##                                      Estimate Std. Error t value Pr(>|t|)
-## (Intercept)                        562.059277   1.806668 311.103   <2e-16
-## acute.test.howlongshock_seconds     -0.296516   0.003231 -91.770   <2e-16
-## as.factor(animal.key.timepoint)0.5   1.901423   1.599209   1.189    0.239
-## as.factor(animal.key.timepoint)1    -0.134233   1.589311  -0.084    0.933
-## as.factor(animal.key.timepoint)4     2.088966   1.595693   1.309    0.195
-## as.factor(animal.key.timepoint)7     1.711643   1.947389   0.879    0.383
-## as.factor(animal.key.timepoint)24    2.571109   1.591651   1.615    0.111
-## as.factor(animal.key.timepoint)48    1.929356   1.971338   0.979    0.331
-## animal.registration.sex            -25.134776   0.971100 -25.883   <2e-16
-##                                       
-## (Intercept)                        ***
-## acute.test.howlongshock_seconds    ***
-## as.factor(animal.key.timepoint)0.5    
-## as.factor(animal.key.timepoint)1      
-## as.factor(animal.key.timepoint)4      
-## as.factor(animal.key.timepoint)7      
-## as.factor(animal.key.timepoint)24     
-## as.factor(animal.key.timepoint)48     
-## animal.registration.sex            ***
-## ---
-## Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
-## 
-## Residual standard error: 3.893 on 63 degrees of freedom
-## Multiple R-squared:  0.9949, Adjusted R-squared:  0.9943 
-## F-statistic:  1538 on 8 and 63 DF,  p-value: < 2.2e-16
+## [1] 78  8
+## [1] "PaxGene RNA 0.790279848326075 0.817156550332186"
+## [1] 156   8
+## [1] 78  8
+## [1] "Hippocampus 0.321660571954462 0.00944810189048159"
+## [1] 78  8
+## [1] "Cortex 0.318839241451852 0.00572878866462239"
+## [1] 78  8
+## [1] "Hypothalamus 0.378654221482666 0.0339555538040965"
+## [1] 94  8
+## [1] "Gastrocnemius 0.914589614953042 2.58817867587478e-06"
+## [1] 78  8
+## [1] "Vastus Lateralis 0.498770220233718 4.79418104086723e-05"
+## [1] 16  8
+## [1] "Tibia 1.67557140261054 0.103317278345256"
+## [1] 92  8
+## [1] "Heart 0.466171696137944 0.199060221467731"
+## [1] 78  8
+## [1] "Kidney 0.322552892032564 0.418355934840108"
+## [1] 78  8
+## [1] "Adrenals 0.425404017880244 0.00645760047457231"
+## [1] 78  8
+## [1] "Colon 0.54604928815029 0.0116198748828277"
+## [1] 78  8
+## [1] "Spleen 13.0548069891023 0.403120930656265"
+## [1] 39  8
+## [1] 78  8
+## [1] "Brown Adipose 0.702405652020479 0.0232419073391203"
+## [1] 94  8
+## [1] "White Adipose 0.959424347900243 0.194632437895066"
+## [1] 78  8
+## [1] "Aorta 0.823315161101129 0.35965475499893"
+## [1] 78  8
+## [1] "Lung 0.656236769773995 0.152635830757761"
+## [1] 78  8
+## [1] "Small Intestine 0.857967259568141 0.104642959884655"
+## [1] 94  8
+## [1] "Liver 1.92900712951959 0.32997414426506"
+## [1] 39  8
 \end{verbatim}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\NormalTok{tissue_log_ps =}\StringTok{ }\OperatorTok{-}\KeywordTok{log}\NormalTok{(tissue_sex_pvals[,}\DecValTok{1}\OperatorTok{:}\DecValTok{2}\NormalTok{],}\DataTypeTok{base=}\DecValTok{10}\NormalTok{)}
+\KeywordTok{colnames}\NormalTok{(tissue_log_ps) =}\StringTok{ }\KeywordTok{c}\NormalTok{(}
+  \StringTok{"collect_to_freeze"}\NormalTok{,}
+  \StringTok{"death_to_collect"}
+\NormalTok{)}
+\NormalTok{plt =}\StringTok{ }\KeywordTok{barplot}\NormalTok{(}\KeywordTok{t}\NormalTok{(tissue_log_ps),}\DataTypeTok{beside =}\NormalTok{ T,}\DataTypeTok{xaxt=}\StringTok{"n"}\NormalTok{,}\DataTypeTok{legend=}\NormalTok{T)}
+\KeywordTok{text}\NormalTok{(}\KeywordTok{colMeans}\NormalTok{(plt), }\KeywordTok{par}\NormalTok{(}\StringTok{"usr"}\NormalTok{)[}\DecValTok{3}\NormalTok{], }\DataTypeTok{labels =} \KeywordTok{rownames}\NormalTok{(tissue_log_ps), }
+     \DataTypeTok{srt =} \DecValTok{45}\NormalTok{, }\DataTypeTok{adj =} \KeywordTok{c}\NormalTok{(}\FloatTok{1.1}\NormalTok{,}\FloatTok{1.1}\NormalTok{), }\DataTypeTok{xpd =}\NormalTok{ T, }\DataTypeTok{cex=}\FloatTok{0.6}\NormalTok{)}
+\KeywordTok{abline}\NormalTok{(}\DataTypeTok{h =} \DecValTok{2}\NormalTok{,}\DataTypeTok{lwd=}\DecValTok{2}\NormalTok{,}\DataTypeTok{col=}\StringTok{"red"}\NormalTok{,}\DataTypeTok{lty=}\DecValTok{2}\NormalTok{)}
+
+\ControlFlowTok{for}\NormalTok{(tissue }\ControlFlowTok{in} \KeywordTok{unique}\NormalTok{(tmpx}\OperatorTok{$}\NormalTok{tissue))\{}
+\NormalTok{  df =}\StringTok{ }\NormalTok{tmpx}
+\NormalTok{  df =}\StringTok{ }\NormalTok{df[}\KeywordTok{grepl}\NormalTok{(tissue,df}\OperatorTok{$}\NormalTok{tissue,}\DataTypeTok{ignore.case =}\NormalTok{ T),]}
+  \ControlFlowTok{if}\NormalTok{(}\KeywordTok{all}\NormalTok{(}\KeywordTok{is.na}\NormalTok{(df}\OperatorTok{$}\NormalTok{time_collect_to_freeze)))\{}\ControlFlowTok{next}\NormalTok{\}}
+  \KeywordTok{boxplot}\NormalTok{(time_death_to_collect}\OperatorTok{~}\NormalTok{sex,}\DataTypeTok{data=}\NormalTok{df,}\DataTypeTok{main=}\NormalTok{tissue)}
+\NormalTok{\}}
+\end{Highlighting}
+\end{Shaded}
+
+\includegraphics{pheno_csv_files_analysis_files/figure-latex/unnamed-chunk-9-1.pdf}
+\includegraphics{pheno_csv_files_analysis_files/figure-latex/unnamed-chunk-9-2.pdf}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\CommentTok{# # reproduce the results directly from the specimen data}
+\CommentTok{# spec_data = read.csv("~/Desktop/MoTrPAC/data/pass_1a/dmaqc_pheno/QC_EXPORT_TXFR0.01_1A.6M_DS_MoTrPAC.PASS_Animal.Specimen.Processing.csv",stringsAsFactors = F)}
+\CommentTok{# spec_collection = read.csv("~/Desktop/MoTrPAC/data/pass_1a/dmaqc_pheno/QC_EXPORT_TXFR0.01_1A.6M_DS_MoTrPAC.PASS_Animal.Specimen.Collection.csv",stringsAsFactors = F)}
+\CommentTok{# animal_data = read.csv("~/Desktop/MoTrPAC/data/pass_1a/dmaqc_pheno/QC_EXPORT_TXFR0.01_1A.6M_DS_MoTrPAC.PASS_Animal.Registration.csv",stringsAsFactors = F)}
+\CommentTok{# acute_data = read.csv("~/Desktop/MoTrPAC/data/pass_1a/dmaqc_pheno/QC_EXPORT_TXFR0.01_1A.6M_DS_MoTrPAC.PASS_Animal.Acute.Test.csv",stringsAsFactors = F)}
+\CommentTok{# animal_data2 = read.csv("~/Desktop/MoTrPAC/data/pass_1a/dmaqc_pheno/QC_EXPORT_TXFR0.01_1A.6M_DS_MoTrPAC.PASS_Animal.Key.csv",stringsAsFactors = F)}
+\CommentTok{# # Limit to gastroc data}
+\CommentTok{# spec_data = spec_data[grepl("gastroc",spec_data$sampletypedescription,ignore.case = T),]}
+\CommentTok{# # Make all ids PIDs}
+\CommentTok{# rownames(spec_data) = as.character(spec_data$pid)}
+\CommentTok{# rownames(animal_data) = as.character(animal_data$pid)}
+\CommentTok{# rownames(spec_collection) = as.character(spec_collection$pid)}
+\CommentTok{# rownames(acute_data) = as.character(acute_data$pid)}
+\CommentTok{# rownames(animal_data2) = animal_data2$pid}
+\CommentTok{# # Intersection }
+\CommentTok{# inds = intersect(rownames(spec_data),rownames(animal_data))}
+\CommentTok{# spec_data = spec_data[inds,]}
+\CommentTok{# animal_data = animal_data[inds,]}
+\CommentTok{# acute_data = acute_data[inds,]}
+\CommentTok{# spec_collection = spec_collection[inds,]}
+\CommentTok{# animal_data2 = animal_data2[inds,]}
+\CommentTok{# }
+\CommentTok{# # three time intervals:}
+\CommentTok{# # I1: complete to death}
+\CommentTok{# # I2: death to collection}
+\CommentTok{# # I3: collection to freeze}
+\CommentTok{# I1 = as.difftime(spec_collection$t_death) - as.difftime(acute_data$t_complete)}
+\CommentTok{# I2 = as.difftime(spec_data$t_collection) - as.difftime(spec_collection$t_death)}
+\CommentTok{# I3 = as.difftime(spec_data$t_freeze)-as.difftime(spec_data$t_collection)}
+\CommentTok{# I1 = as.numeric(I1)}
+\CommentTok{# I2 = as.numeric(I2)}
+\CommentTok{# I3 = as.numeric(I3)}
+\CommentTok{# sex = animal_data$sex}
+\CommentTok{# daysdiff = acute_data$days_visit - acute_data$days_start}
+\CommentTok{# I1 = I1 + 24*daysdiff}
+\CommentTok{# # Change to minutes}
+\CommentTok{# I1 = I1*60}
+\CommentTok{# I2 = I2*60}
+\CommentTok{# I3 = I3*60}
+\CommentTok{# }
+\CommentTok{# group = animal_data2$ANIRandGroup}
+\CommentTok{# group = gsub("Control","C",group)}
+\CommentTok{# group = gsub("Exercise","E",group)}
+\CommentTok{# }
+\CommentTok{# # Sex vs times}
+\CommentTok{# par(mfrow=c(1,3))}
+\CommentTok{# boxplot(log(I1)~sex,main = "I1: death-complete",ylab = "minutes(log)",xlab = "sex")}
+\CommentTok{# boxplot(I2~sex,main = "I2: collection-death",xlab = "sex",ylab="minutes")}
+\CommentTok{# boxplot(I3~sex,main = "I3: freeze-collection",xlab = "sex",ylab="minutes")}
+\CommentTok{# # Study group vs times}
+\CommentTok{# par(mfrow=c(3,1))}
+\CommentTok{# boxplot(log(I1)~group,main = "I1: death-complete",las=2,xlab="",ylab="minutes(log)")}
+\CommentTok{# boxplot(I2~group,main = "I2: collection-death",las=2,xlab="",ylab="minutes")}
+\CommentTok{# boxplot(I3~group,main = "I3: freeze-collection",las=2,xlab="",ylab="minutes")}
+\CommentTok{# }
+\CommentTok{# kruskal.test(I1,group)$p.value}
+\CommentTok{# kruskal.test(I2,group)$p.value}
+\CommentTok{# kruskal.test(I3,group)$p.value}
+\end{Highlighting}
+\end{Shaded}
+
+\includegraphics{pheno_csv_files_analysis_files/figure-latex/unnamed-chunk-9-3.pdf}
 
 \section{Save the merged datasets in the
 cloud}\label{save-the-merged-datasets-in-the-cloud}
@@ -936,19 +1113,23 @@ cloud}\label{save-the-merged-datasets-in-the-cloud}
 \begin{Highlighting}[]
 \CommentTok{# To see the bucket list}
 \CommentTok{# gsutil ls -p motrpac-portal-dev}
-\KeywordTok{write.table}\NormalTok{(merged_dmaqc_data,}\DataTypeTok{file=}\StringTok{"merged_dmaqc_data.txt"}\NormalTok{,}
+\NormalTok{currdate =}\StringTok{ }\KeywordTok{Sys.Date}\NormalTok{()}
+\NormalTok{txtname =}\StringTok{ }\KeywordTok{paste}\NormalTok{(}\StringTok{"merged_dmaqc_data"}\NormalTok{,currdate,}\StringTok{".txt"}\NormalTok{,}\DataTypeTok{sep=}\StringTok{""}\NormalTok{)}
+\NormalTok{rdataname =}\StringTok{ }\KeywordTok{paste}\NormalTok{(}\StringTok{"merged_dmaqc_data"}\NormalTok{,currdate,}\StringTok{".RData"}\NormalTok{,}\DataTypeTok{sep=}\StringTok{""}\NormalTok{)}
+\NormalTok{dictfname =}\StringTok{ }\KeywordTok{paste}\NormalTok{(}\StringTok{"merged_column_dictionary"}\NormalTok{,currdate,}\StringTok{".txt"}\NormalTok{,}\DataTypeTok{sep=}\StringTok{""}\NormalTok{)}
+\KeywordTok{write.table}\NormalTok{(merged_dmaqc_data,}\DataTypeTok{file=}\NormalTok{txtname,}
             \DataTypeTok{quote =}\NormalTok{ F,}\DataTypeTok{sep=}\StringTok{"}\CharTok{\textbackslash{}t}\StringTok{"}\NormalTok{,}\DataTypeTok{row.names =}\NormalTok{ F)}
-\KeywordTok{save}\NormalTok{(merged_dmaqc_data,}\DataTypeTok{file=}\StringTok{"merged_dmaqc_data.RData"}\NormalTok{)}
-\KeywordTok{write.table}\NormalTok{(merged_column_dictionary,}\DataTypeTok{file=}\StringTok{"merged_column_dictionary.txt"}\NormalTok{,}
+\KeywordTok{save}\NormalTok{(merged_dmaqc_data,}\DataTypeTok{file=}\NormalTok{rdataname)}
+\KeywordTok{write.table}\NormalTok{(merged_column_dictionary,}\DataTypeTok{file=}\NormalTok{dictfname,}
             \DataTypeTok{quote =}\NormalTok{ F,}\DataTypeTok{sep=}\StringTok{"}\CharTok{\textbackslash{}t}\StringTok{"}\NormalTok{,}\DataTypeTok{row.names =}\NormalTok{ F)}
-\KeywordTok{system}\NormalTok{(}\KeywordTok{paste}\NormalTok{(}\StringTok{"~/google-cloud-sdk/bin/gsutil"}\NormalTok{, }\StringTok{"cp merged_dmaqc_data.txt"}\NormalTok{,}
+\KeywordTok{system}\NormalTok{(}\KeywordTok{paste}\NormalTok{(}\StringTok{"~/google-cloud-sdk/bin/gsutil cp"}\NormalTok{, txtname,}
              \StringTok{"gs://bic_data_analysis/pass1a/pheno_dmaqc/"}\NormalTok{))}
-\KeywordTok{system}\NormalTok{(}\KeywordTok{paste}\NormalTok{(}\StringTok{"~/google-cloud-sdk/bin/gsutil"}\NormalTok{, }\StringTok{"cp merged_dmaqc_data.RData"}\NormalTok{,}
+\KeywordTok{system}\NormalTok{(}\KeywordTok{paste}\NormalTok{(}\StringTok{"~/google-cloud-sdk/bin/gsutil cp"}\NormalTok{, rdataname,}
              \StringTok{"gs://bic_data_analysis/pass1a/pheno_dmaqc/"}\NormalTok{))}
-\KeywordTok{system}\NormalTok{(}\KeywordTok{paste}\NormalTok{(}\StringTok{"~/google-cloud-sdk/bin/gsutil"}\NormalTok{, }\StringTok{"cp merged_column_dictionary.txt"}\NormalTok{,}
+\KeywordTok{system}\NormalTok{(}\KeywordTok{paste}\NormalTok{(}\StringTok{"~/google-cloud-sdk/bin/gsutil cp"}\NormalTok{, dictfname,}
              \StringTok{"gs://bic_data_analysis/pass1a/pheno_dmaqc/"}\NormalTok{))}
-\KeywordTok{system}\NormalTok{(}\KeywordTok{paste}\NormalTok{(}\StringTok{"~/google-cloud-sdk/bin/gsutil"}\NormalTok{, }
-             \StringTok{"cp ~/Desktop/repos/motrpac/animal_data/README.txt"}\NormalTok{,}
+\KeywordTok{system}\NormalTok{(}\KeywordTok{paste}\NormalTok{(}\StringTok{"~/google-cloud-sdk/bin/gsutil cp"}\NormalTok{, }
+             \StringTok{"~/Desktop/repos/motrpac/animal_data/README.txt"}\NormalTok{,}
              \StringTok{"gs://bic_data_analysis/pass1a/pheno_dmaqc/"}\NormalTok{))}
 
 \KeywordTok{system}\NormalTok{(}\StringTok{"rm merged_dmaqc_data.txt"}\NormalTok{)}
