@@ -32,6 +32,7 @@ for(fname in all_dict_csvs){
   dict_data[[fname]] = read.csv(fname,stringsAsFactors = F)
 } 
 #sapply(dict_data,dim)
+source("~/Desktop/repos/motrpac/tools/gcp_functions.R")
 ```
 
 # Sanity check: Acute tests basic statistics
@@ -465,6 +466,20 @@ merged_dmaqc_data$calculated.variables.time_complete_to_death_min = I1
 merged_dmaqc_data$calculated.variables.time_death_to_collect_min = I2
 merged_dmaqc_data$calculated.variables.time_collect_to_freeze_min = I3
 
+# Add to dictionary
+merged_column_dictionary = rbind(merged_column_dictionary,
+  c("calculated.variables.time_complete_to_death_min",
+    "numeric","","","calculated.variables")
+)
+merged_column_dictionary = rbind(merged_column_dictionary,
+  c("calculated.variables.time_death_to_collect_min",
+    "numeric","","","calculated.variables")
+)
+merged_column_dictionary = rbind(merged_column_dictionary,
+  c("calculated.variables.time_collect_to_freeze_min",
+    "numeric","","","calculated.variables")
+)
+
 # look at time vs sex diffs in each tissue
 tmpx = cbind(
   merged_dmaqc_data$labelid,
@@ -616,9 +631,16 @@ system(paste("~/google-cloud-sdk/bin/gsutil cp",
              "~/Desktop/repos/motrpac/animal_data/README.txt",
              "gs://bic_data_analysis/pass1a/pheno_dmaqc/"))
 
-system("rm merged_dmaqc_data.txt")
-system("rm merged_dmaqc_data.RData")
-system("rm merged_column_dictionary.txt")
+system(paste("rm", txtname))
+system(paste("rm", rdataname))
+system(paste("rm", dictfname))
 ```
 
+## Compare to the older version of the data
+
+```{r}
+olderversion = load_from_bucket("merged_dmaqc_data.RData",bucket = "gs://bic_data_analysis/pass1a/pheno_dmaqc/")
+olderversion = olderversion[[1]]
+table(olderversion == merged_dmaqc_data)
+```
 
