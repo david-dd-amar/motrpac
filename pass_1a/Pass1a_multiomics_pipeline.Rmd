@@ -75,7 +75,7 @@ multiomics_X = tissue_rnaseq
 multiomics_type = rep("rnaseq",nrow(tissue_rnaseq))
 for(dataset in met_tissue_datasets){
   d = metabolomics_datasets[[dataset]]$sample_data
-  d = clean_by_cv(d,0.25)
+  d = clean_by_cv(d,0.1)
   if(is.null(dim(d))){next}
   currbids = as.character(merged_dmaqc_data[colnames(d),"bid"])
   colnames(d) = currbids
@@ -88,15 +88,26 @@ table(multiomics_type)
 multiomics_naive_pca = prcomp(t(multiomics_X),scale=T)
 df = data.frame(multiomics_naive_pca$x[,1:10],
                 timepoint = as.factor(multiomics_samplemeta$animal.key.timepoint),
-                sex = as.factor(multiomics_samplemeta$animal.registration.sex))
-ggplot(df,aes(x=PC1, y=PC2,shape=sex,color=timepoint)) + 
+                sex = as.factor(multiomics_samplemeta$animal.registration.sex),
+                iscontrol = multiomics_samplemeta$animal.key.is_control)
+df$timepoint[df$iscontrol & df$timepoint=="-1"] = 0
+ggplot(df,aes(x=PC1, y=PC2,shape=iscontrol,color=timepoint)) + 
   geom_point(size=2) + ggtitle("Naive PCA: PCs 1 and 2") + 
-  theme(plot.title = element_text(hjust = 0.5))
+  theme(plot.title = element_text(hjust = 0.5),
+        plot.margin = margin(2, 2, 2, 2, "cm"))
 ggplot(df,aes(x=PC3, y=PC4,shape=sex,color=timepoint)) + 
   geom_point(size=2) + ggtitle("Naive PCA: PCs 3 and 4") + 
-  theme(plot.title = element_text(hjust = 0.5))
+  theme(plot.title = element_text(hjust = 0.5),
+        plot.margin = margin(2, 2, 2, 2, "cm"))
 
 boxplot(PC1~sex:timepoint,data=df)
+
+# Look at the loadings
+abs_loadings = abs(multiomics_naive_pca$rotation)
+abs_loading_binary = apply(abs_loadings,2,function(x)x>quantile(x,probs=0.8))
+boxplot(abs_loadings[,1] ~ multiomics_type)
+table(abs_loading_binary[,1],multiomics_type)
+table(multiomics_type)
 
 # Autoencoders
 library(tensorflow)
@@ -105,13 +116,21 @@ instal_keras(method="conda")
 install_tensorflow(version = "1.12",method = "conda")
 # set training data
 x_train <- t(as.matrix(multiomics_X))
+x_train = scale(x_train)
 
 # set model
 model <- keras_model_sequential()
 model %>%
-  layer_dense(units = 6, activation = "tanh", input_shape = ncol(x_train)) %>%
-  layer_dense(units = 2, activation = "tanh", name = "bottleneck") %>%
-  layer_dense(units = 6, activation = "tanh") %>%
+  layer_dense(units = 256, activation = "relu", input_shape = ncol(x_train)) %>%
+  layer_dropout(rate = 0.5) %>% 
+  layer_dense(units = 128, activation = "relu") %>% 
+  layer_dropout(rate = 0.5) %>% 
+  layer_dense(units = 32, activation = "relu") %>% 
+  layer_dropout(rate = 0.5) %>% 
+  layer_dense(units = 8, activation = "linear", name = "bottleneck",
+              kernel_regularizer = regularizer_l1(l = 0.001)) %>%
+  layer_dense(units = 32, activation = "linear") %>%
+  layer_dense(units = 128, activation = "linear") %>%
   layer_dense(units = ncol(x_train))
 
 # view model layers
@@ -127,8 +146,9 @@ model %>% compile(
 model %>% fit(
   x = x_train, 
   y = x_train, 
-  epochs = 2000,
-  verbose = 0
+  epochs = 100,
+  batch_size = 1,
+  verbose = 1
 )
 
 # evaluate the performance of the model
@@ -139,7 +159,95 @@ mse.ae2
 # extract the bottleneck layer
 intermediate_layer_model <- keras_model(inputs = model$input, outputs = get_layer(model, "bottleneck")$output)
 intermediate_output <- predict(intermediate_layer_model, x_train)
-df = data.frame(PC1 = intermediate_output[,1], PC2 = intermediate_output[,2])
-ggplot(df, aes(x = PC1, y = PC2, col = ais$sex)) + geom_point()
+colnames(intermediate_output) = paste("V",1:ncol(intermediate_output),sep="")
+intermediate_output = data.frame(intermediate_output)
+df = data.frame(intermediate_output,
+                timepoint = as.factor(multiomics_samplemeta$animal.key.timepoint),
+                sex = as.factor(multiomics_samplemeta$animal.registration.sex),
+                iscontrol = multiomics_samplemeta$animal.key.is_control)
+df$timepoint[df$iscontrol & df$timepoint=="-1"] = 0
+ggplot(df,aes(x=V1, y=V2,shape=iscontrol,color=timepoint)) + 
+  geom_point(size=2) + ggtitle("AE-ReLU: V1 and V2") + 
+  theme(plot.title = element_text(hjust = 0.5))
+ggplot(df,aes(x=V3, y=V2,shape=iscontrol,color=timepoint)) + 
+  geom_point(size=2) + ggtitle("AE-ReLU: V3 and V4") + 
+  theme(plot.title = element_text(hjust = 0.5),
+        plot.margin = margin(2, 2, 2, 2, "cm"))
+
+
+# Compare PCA and AE by weights
+autoencoder_weights <- 
+  model %>%
+  keras::get_weights()
+abs_loadings = abs(autoencoder_weights[[1]])
+abs_loading_binary = apply(abs_loadings,2,function(x)x>quantile(x,probs=0.8))
+boxplot(abs_loadings[,1] ~ multiomics_type)
+table(abs_loading_binary[,4],multiomics_type)
+table(multiomics_type)
+
 ```
+
+
+## Differential analysis
+
+```{r}
+library(mediation)
+run_sex_weight_mediation<-function(x,s,w,...){
+  m1 = lm(w~s)
+  m2 = lm(x~s+w)
+  med.out = mediate(m1,m2,treat="s",mediator="w",...)
+  med.out = summary(med.out)
+  med.out[c("d0.p","d1.p")]
+  res = unlist(med.out[c("d0","d0.p","z0","z0.p","n0","tau.coef","tau.p")])
+  names(res) = c("med_effect","med_effect_pvalue",
+                 "direct_effec","direct_effect_pvalue",
+                 "prop_mediated","total_effect","tot_effect_p")
+  return(res)
+}
+mediation_results = list()
+datasets = c("gastrocnemius,MSSM","kidney,MSSM")
+for(curr_name in datasets){
+  curr_data = rnaseq_datasets[[curr_name]]$fpkms
+  curr_meta1 = rnaseq_datasets[[curr_name]]$pipeline_meta
+  curr_meta2 = rnaseq_datasets[[curr_name]]$dmaqc_meta
+  # to exclude the controls before the analysis:
+  non_control_inds = rnaseq_datasets[[curr_name]]$non_control_inds
+  y = curr_meta2$animal.key.timepoint
+  z = curr_meta2$animal.key.is_control
+  
+  controls_data = curr_data[,z & y==min(y)]
+  mean_control = rowMeans(controls_data)
+  curr_data = curr_data[,!z]
+  y = y[!z]
+  
+  for(tp in c(4.0,1.0)){
+    sex_vs_weight = lm()
+    
+    curr_entry_name = paste(curr_name,tp,sep=",")
+    x = curr_data[,y==tp]
+
+    # prepare data for the mediation analysis
+    for(j in 1:ncol(x)){x[,j] = x[,j]-mean_control}
+    s = curr_meta2[colnames(x),]$animal.registration.sex
+    s = s-1
+    w = curr_meta2[colnames(x),]$acute.test.weight
+    
+    w_sex_lm = lm(w~s)
+    gene_sex_lm = apply(x,1,linear_association_analysis,x=s)
+    gene_w_adj = apply(x,1,linear_association_analysis,x=w,z=s)
+    
+    x1 = x[,s!=s[1]]
+    w1 = w[s!=s[1]]
+    gene_w1 = apply(x1,1,linear_association_analysis,x=w1)
+    
+    
+    mediation_analysis_res = apply(x[1:10,],1,run_sex_weight_mediation,s=s,
+                                   w=w,boot=F)
+    mediation_analysis_res = t(mediation_analysis_res)
+    mediation_results[[curr_entry_name]] = mediation_analysis_res
+  }
+}
+
+```
+
 

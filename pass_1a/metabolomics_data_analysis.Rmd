@@ -6,36 +6,47 @@ output:
   html_notebook: default
 ---
 
-In this document we present the joint analysis of the different metabolomics datasets submitted to BIC (currently, as of June 2019). We rely on the following resources for metabolomics-specific issues (in addition to the MOP):
-Gorrochategui et al. (https://www.sciencedirect.com/science/article/pii/S0165993616300425), section 3.2.5 on data intensity normalization. Li et al. (https://academic.oup.com/nar/article/45/W1/W162/3835313) for description of normalization tools. 
+In this document we present the joint analysis of the different metabolomics datasets submitted to BIC (currently, as of June 2019). 
 
-Briefly, metabolic data are senitive to drift and batch effects, especially in long-term studies. To cope with these issues, studies usually use quality control samples throughout the project for assessing the batches, and internal standards and/or quality control metabolites for normalization. Notable methods here are RUV and CCMN. Downstream normalization is used to either deal with the heteroscedasticity of the metabolite-level data (e.g., Pareto normalization) or to account for sample-to-sample variation (MSTUS, Quantile, Median, etc.).
+For a literature scan on normalization methods see our document: https://docs.google.com/document/d/1M8p5vU9N7JZcRercQoiz02yPCRTjAitB7-t22r2belo/edit?usp=sharing.
+Briefly, metabolomics studies usually use quality control samples throughout the project for assessing the batches, and internal standards (spike-in metabolites) for normalization. Notable methods here are RUV and CCMN. Downstream normalization is used to either deal with the heteroscedasticity of the metabolite-level data (e.g., Pareto normalization) or to account for sample-to-sample variation (MSTUS, Quantile, Median, etc.). Some methods rely on reference samples (pools or qc samples). Loess-based methods that compare each sample to the reference can be used for this normalization. 
+
+# Load all datasets
 
 Load the parsed meta-data (from the cloud), required for all analyses presented here.
 
-```{r}
+```{r,results='hide',message=FALSE,warning=FALSE}
 system(paste("~/google-cloud-sdk/bin/gsutil",
-             "cp gs://bic_data_analysis/pass1a/pheno_dmaqc/merged_dmaqc_data.RData",
-             "."))
+  "cp gs://bic_data_analysis/pass1a/pheno_dmaqc/merged_dmaqc_data.RData",
+  "."))
 load("merged_dmaqc_data.RData")
 system("rm merged_dmaqc_data.RData")
 rownames(merged_dmaqc_data) = as.character(merged_dmaqc_data$viallabel)
 
 # load required libraries
 library(ggplot2);library(reshape2);library(gridExtra)
+library(corrplot)
 
 # load our helper functions
 source("~/Desktop/repos/motrpac/tools/preprocessing_helper_functions.R")
 source("~/Desktop/repos/motrpac/tools/gcp_functions.R")
+source("~/Desktop/repos/motrpac-bic-norm-qc/norm_pipelines/supervised_normalization_functions.R")
+source("~/Desktop/repos/motrpac-bic-norm-qc/norm_pipelines/unsupervised_normalization_functions.R")
+
+merged_dmaqc_data =  load_from_bucket("merged_dmaqc_data.RData",
+    "gs://bic_data_analysis/pass1a/pheno_dmaqc/",F)
+merged_dmaqc_data = merged_dmaqc_data[[1]]
+rownames(merged_dmaqc_data) = as.character(merged_dmaqc_data$viallabel)
+merged_dmaqc_data$tissue = merged_dmaqc_data$sampletypedescription
 ```
 
-# Load all datasets
+Load the data and separate by tissue. Define a dataset as a combination of site, tissue, and platform.
 
-```{r}
+```{r,results='hide',message=FALSE,warning=FALSE,eval=FALSE}
 metabolomics_data_bucket = "gs://bic_data_analysis/pass1a/metabolomics/"
 rdata_files = get_files_in_bucket(metabolomics_data_bucket)
 rdata_files = rdata_files[grepl(".rdata$",rdata_files,ignore.case = T)]
-site_names = c("duke","mayo","broad","gtech")
+site_names = c("duke","mayo","broad","gtech","umichigan")
 for(site in site_names){
   inds = grepl(site,rdata_files,ignore.case = T)
   names(rdata_files)[inds] = site
@@ -69,20 +80,27 @@ raw_abundance_datasets_sites =
 # this is a named list of dataset
 # each name has: site,tissue
 # each entry has abundance data, row annot data, control data, sample metadata (optional)
+# @assumption: last row annotation column in untargeted data is "RT"
+# @assumption: last row annotation column in targeted is "SITE_COMP_NAME"
 metabolomics_parsed_datasets = list()
 for(dataset in names(raw_abundance_datasets)){
   site = raw_abundance_datasets_sites[[dataset]]
   tissue_name = raw_abundance_datasets_tissues[[dataset]]
-  is_untargeted = is.element(site,set = c("broad","gtech"))
+  is_untargeted = is.element(site,set = c("broad","gtech","umichigan"))
   d = raw_abundance_datasets[[dataset]]
   sample_meta = sample_metadata[[dataset]]
+  print(paste(dataset,nrow(sample_meta)))
   if(is_untargeted){
-    row_annot = d[,1:8];d = d[-c(1:8)]
+    lastind = which(names(d)=="RT")
   }
   else{
-    row_annot = d[,1:2];d = d[-c(1:2)]
+    lastind = which(names(d)=="SITE_COMP_NAME")
   }
-    
+  row_annot = d[,1:lastind];d = d[-c(1:lastind)]
+  
+  print(table(sapply(d,class)))
+  d = as.matrix(d) # transform to matrix
+  mode(d) = "numeric" # required as some datasets are given in character
   d[is.na(d)] = 0
   d = log(d+1,base=2)
     
@@ -90,26 +108,16 @@ for(dataset in names(raw_abundance_datasets)){
   control_data = d[,control_columns]
   d  = d[,!control_columns]
     
-  # if site is broad then quantile normalize
-  if(is_untargeted){
-    d = run_quantile_normalization(d)
-  }
-    
   print(paste("excluded rows with zero variance",sum(apply(d,1,sd)==0)))
   rowinds = apply(d,1,sd)>0
   d = d[rowinds,]
   row_annot = row_annot[rowinds,]
   control_data=control_data[rowinds,]
-    
-  # # Compute fold change data vs. the mean pre treatment
-  # curr_time_points = merged_dmaqc_data[colnames(d),"animal.key.timepoint"]
-  # curr_controls = merged_dmaqc_data[colnames(d),"animal.key.is_control"]
-  # raw_group_info = merged_dmaqc_data[colnames(d),"animal.key.anirandgroup"]
-  # curr_sex = merged_dmaqc_data[colnames(d),"animal.registration.sex"]
-    
+  
   obj_name = paste(site,tissue_name,sep="_")
   obj = list(sample_data=d,control_data=control_data,
-             row_annot=row_annot,sample_meta=sample_meta)
+             row_annot=row_annot,sample_meta=sample_meta,
+             is_untargeted = is_untargeted)
   metabolomics_parsed_datasets[[dataset]] = obj
 }
 
@@ -118,45 +126,287 @@ save_to_bucket(metabolomics_parsed_datasets,
                bucket = "gs://bic_data_analysis/pass1a/metabolomics/")
 ```
 
-# Pairwise comparisons
+Alternatively load the result from the bucket to save time:
+```{r}
+metabolomics_parsed_datasets = load_from_bucket(
+  file = "metabolomics_parsed_datasets.RData",
+  bucket = "gs://bic_data_analysis/pass1a/metabolomics/")[[1]]
+```
 
-## Using simple correlations
+# Dataset qc and normalization
 
-## Using PLS2 regression
+## Look at the reference correlations
+
+```{r}
+ref_corrs = list()
+for(nn in names(metabolomics_parsed_datasets)){
+  dataset = metabolomics_parsed_datasets[[nn]]
+  x = dataset$control_data
+  xmeta = dataset$sample_meta
+  cnames = colnames(x)
+  ctypes = gsub("\\d",replacement = "",cnames)
+  ctypes = gsub("_",replacement = "",ctypes)
+  names(ctypes) = cnames
+  xcorrs = cor(x,method="spearman")
+  ctype2cors = list()
+  for(ctype in ctypes){
+    inds = names(ctypes)[ctypes==ctype]
+    ctype2cors[[ctype]] = xcorrs[inds,inds]
+  }
+  ref_corrs[[nn]] = lapply(ctype2cors,function(x)x[lower.tri(x)])
+}
+
+# Create a report from the control data
+ref_cor_sum_report = c()
+inds_to_plot = names(which(sapply(ref_corrs,length)>0))
+for(dataset_name in inds_to_plot){
+  currvals = ref_corrs[[dataset_name]]
+  corrs_dists = cbind(
+    sapply(currvals,mean,na.rm=T),
+    sapply(currvals,sd,na.rm=T),
+    sapply(currvals,median,na.rm=T)
+  )
+  colnames(corrs_dists) = c("mean","sd","median")
+  corrs_dists = data.frame(corrs_dists)
+  corrs_dists = cbind(rownames(corrs_dists),corrs_dists)
+  corrs_dists = cbind(dataset_name,corrs_dists)
+  ref_cor_sum_report = rbind(ref_cor_sum_report,corrs_dists)
+}
+rownames(ref_cor_sum_report) = NULL
+write.table(ref_cor_sum_report,sep="\t",quote = F)
+rownames(ref_cor_sum_report) = paste(ref_cor_sum_report[,1],
+       ref_cor_sum_report[,2],sep=":")
+ref_cor_sum_report = as.matrix(ref_cor_sum_report[,-c(1:2)])
+ref_cor_sum_report = ref_cor_sum_report[!is.na(ref_cor_sum_report[,1]),]
+write.table(rownames(ref_cor_sum_report)[ref_cor_sum_report[,1]<0.8],
+            row.names = F,quote=F)
+
+inds_to_plot
+nn = "broad_liver_pos"
+par(mar=c(10,4,4,4))
+boxplot(ref_corrs[[nn]],main=nn,las=2,ylim=c(0,1))
+nn = "gtech_liver_pos"
+par(mar=c(10,4,4,4))
+boxplot(ref_corrs[[nn]],main=nn,las=2,ylim=c(0,1))
+
+
+# # MA plots: differential abundance examination
+# colnames(x)
+# x = run_quantile_normalization(x)
+# library(edgeR)
+# ma_plot(x[,24],x[,25])
+# cv_mean_plot(x)
+```
+
+# Dataset pairwise comparisons
+
+## As a prediction task
 
 ```{r,fig.align="center",out.height='60%',out.width='60%',eval=FALSE}
-y = metabolomics_parsed_datasets$duke_muscle$sample_data
-x = metabolomics_parsed_datasets$broad_muscle$sample_data
-
-y_vials = colnames(y)
-bid_y = merged_dmaqc_data[colnames(y),"bid"]
-bid_x = merged_dmaqc_data[colnames(x),"bid"]
-table(is.element(bid_y,set=bid_x))
-colnames(x) = bid_x
-colnames(y) = bid_y
-x = x[,colnames(y)] # make x in the same order as y
-x = t(as.matrix(x))
-y = t(as.matrix(y))
-
-library(pls)
-pls_model = plsr(y~x,ncomp = 5,validation="LOO")
-eval = MSEP(pls_model)
-
-y_pca = prcomp(y)
-plot(y_pca)
-explained_var = y_pca$sdev^2/sum(y_pca$sdev^2)
-y_pca_matrix = y_pca$x[,1:10]
-
-# regress out sex, weight
-cov_cols = c("animal.registration.sex",
+nfolds = 5
+prediction_analysis_results = list()
+for(nn1 in names(metabolomics_parsed_datasets)){
+  print(nn1)
+  for(nn2 in names(metabolomics_parsed_datasets)){
+    print(nn2)
+    y = metabolomics_parsed_datasets[[nn1]]$sample_data
+    x = metabolomics_parsed_datasets[[nn2]]$sample_data
+    if(is.null(rownames(x))){
+      rownames(x) = metabolomics_parsed_datasets[[nn2]]$row_annot[,3]
+    }    
+    if(is.null(rownames(y))){
+      rownames(y) = metabolomics_parsed_datasets[[nn1]]$row_annot[,3]
+    }
+    
+    y_vials = colnames(y)
+    bid_y = merged_dmaqc_data[colnames(y),"bid"]
+    bid_x = merged_dmaqc_data[colnames(x),"bid"]
+    table(is.element(bid_y,set=bid_x))
+    colnames(x) = bid_x
+    colnames(y) = bid_y
+    x = x[,colnames(y)] # make x in the same order as y
+    x = t(as.matrix(x))
+    y = t(as.matrix(y))
+    
+    if(ncol(y)>1000){next}
+    
+    cov_cols = c("animal.registration.sex",
              "acute.test.weight",
-             "acute.test.distance")
-covs = merged_dmaqc_data[y_vials,cov_cols]
+             "acute.test.distance",
+             "animal.key.timepoint")
+    covs = merged_dmaqc_data[y_vials,cov_cols]
+    
+    # Run the regressions
+    folds = sample(rep(1:nfolds,(1+nrow(x)/nfolds)))[1:nrow(x)]
+    numFeatures = min(ncol(x),2000)
+    preds = c();real=c()
+    for(i in 1:ncol(y)){
+      y_i = y[,1]
+      i_preds = c();i_real=c()
+      for(j in 1:nfolds){
+        print(j)
+        tr_x = x[folds!=j,]
+        tr_yi = y_i[folds!=j]
+        te_x = x[folds==j,]
+        te_y = y_i[folds==j]
+        # random forest
+        # model = randomForest(tr_yi,x=tr_x,ntree = 20)
+        # te_preds = predict(model,newdata = te_x)
+        model = feature_selection_wrapper(tr_x,tr_yi,
+                   coeff_of_var,randomForest,
+                   topK = numFeatures,ntree=50)
+        te_preds = predict(model,newdata = te_x)
+        i_preds = c(i_preds,te_preds)
+        i_real = c(i_real,te_y)
+      }
+      preds = cbind(preds,i_preds)
+      real = cbind(real,i_real)
+    }
+    currname = paste(nn1,nn2,sep=";")
+    prediction_analysis_results[[currname]] = list(
+      preds = preds,real=real
+    )
+  }
+}
+names(prediction_analysis_results)
 
-get_explained_variance_using_PCA(x,y)
-x = apply(x,2,regress_out,covs=covs)
-y = apply(y,2,regress_out,covs=covs)
-get_explained_variance_using_PCA(x,y)
+cov_prediction_analysis_results = list()
+for(nn1 in names(metabolomics_parsed_datasets)){
+  print(nn1)
+  y = metabolomics_parsed_datasets[[nn1]]$sample_data
+  y_vials = colnames(y)
+  bid_y = merged_dmaqc_data[colnames(y),"bid"]
+  colnames(y) = bid_y
+  y = t(as.matrix(y))
+  if(ncol(y)>1000){next}
+  cov_cols = c("animal.registration.sex",
+             "acute.test.weight",
+             "acute.test.distance",
+             "animal.key.timepoint")
+  covs = merged_dmaqc_data[y_vials,cov_cols]
+  x = covs
+  
+  # Run the regressions
+  folds = sample(rep(1:nfolds,(1+nrow(x)/nfolds)))[1:nrow(x)]
+  numFeatures = min(ncol(x),2000)
+  preds = c();real=c()
+  for(i in 1:ncol(y)){
+    y_i = y[,1]
+    i_preds = c();i_real=c()
+    for(j in 1:nfolds){
+      print(j)
+      tr_x = x[folds!=j,]
+      tr_yi = y_i[folds!=j]
+      te_x = x[folds==j,]
+      te_y = y_i[folds==j]
+      # random forest
+      model = randomForest(tr_yi,x=tr_x,ntree = 20)
+      te_preds = predict(model,newdata = te_x)
+      i_preds = c(i_preds,te_preds)
+      i_real = c(i_real,te_y)
+    }
+    preds = cbind(preds,i_preds)
+    real = cbind(real,i_real)
+  }
+  cov_prediction_analysis_results[[nn1]] = list(
+      preds = preds,real=real
+    )
+}
+
+results_metrics = c()
+for(nn in names(prediction_analysis_results)){
+  preds = prediction_analysis_results[[nn]]$preds
+  real = prediction_analysis_results[[nn]]$real
+  rhos1 = diag(cor(preds,real))
+  rhos2 = diag(cor(preds,real,method="spearman"))
+  SEs = (preds-real)^2
+  mse = mean(SEs)
+  normSEs = SEs / apply(real,2,sd)
+  curr_scores = c(mean(rhos1),mean(rhos2),min(rhos1),min(rhos2),
+                  mse,mean(normSEs))
+  names(curr_scores) = c("mean_rho","mean_spearman_rho","min_rho","min_spearman_rho",
+                         "MSE","mean MSE/SD")
+  results_metrics = rbind(results_metrics,
+                          curr_scores)
+  rownames(results_metrics)[nrow(results_metrics)] = nn
+}
+
+cov_results_metrics = c()
+for(nn in names(cov_prediction_analysis_results)){
+  preds = cov_prediction_analysis_results[[nn]]$preds
+  real = cov_prediction_analysis_results[[nn]]$real
+  rhos1 = diag(cor(preds,real))
+  rhos2 = diag(cor(preds,real,method="spearman"))
+  SEs = (preds-real)^2
+  mse = mean(SEs)
+  normSEs = SEs / apply(real,2,sd)
+  curr_scores = c(mean(rhos1),mean(rhos2),min(rhos1),min(rhos2),
+                  mse,mean(normSEs))
+  names(curr_scores) = c("mean_rho","mean_spearman_rho","min_rho","min_spearman_rho",
+                         "MSE","mean MSE/SD")
+  cov_results_metrics = rbind(cov_results_metrics,
+                          curr_scores)
+  rownames(cov_results_metrics)[nrow(cov_results_metrics)] = nn
+}
+
+# Some boxplots
+pred_targets = sapply(names(prediction_analysis_results),function(x)
+  strsplit(x,split = ";")[[1]][1])
+target = "duke_liver_tar"
+curr_res = unique(results_metrics[pred_targets == target,])
+rownames(curr_res) = gsub(target,"",rownames(curr_res))
+rownames(curr_res) = gsub(";","",rownames(curr_res))
+rownames(curr_res)[rownames(curr_res)==""] = target
+cov_baseline = cov_results_metrics[target,]
+
+par(mar = c(8,4,2,2))
+cols = rep("blue",nrow(curr_res))
+cols[rownames(curr_res)==target] = "black"
+plt = barplot(curr_res[,4],beside = T,xaxt="n",legend=F,
+              ylab="Min rho (Spearman)",
+              ylim = c(0.5,1),xpd=F,col=cols,
+              main = target)
+text(plt, par("usr")[3], labels = rownames(curr_res), 
+     srt = 45, adj = c(1.1,1.1), xpd = T, cex=0.6)
+abline(h=cov_baseline[4],lty=2,lwd=2,col="red")
+
+par(mar = c(8,4,2,2))
+plt = barplot(curr_res[,6],beside = T,xaxt="n",legend=F,
+              ylab="Mean standardized SE",xpd=F,
+              main = target,col=cols)
+text(plt, par("usr")[3], labels = rownames(curr_res), 
+     srt = 45, adj = c(1.1,1.1), xpd = T, cex=0.6)
+abline(h=cov_baseline[6],lty=2,lwd=2,col="red")
+
+preds = c();real=c()
+for(j in 1:nfolds){
+  tr_x = x[folds!=j,]
+  tr_y = y[folds!=j,]
+  te_x = x[folds==j,]
+  te_y = y[folds==j,]
+  model = MTL_wrapper(tr_x,tr_y,type="Regression", Regularization="L21")
+  te_preds = predict(model,te_x)
+  real = rbind(real,te_y)
+  preds = rbind(preds,te_preds)
+}
+diag(cor(preds,real))
+
+# Using PLS regression
+# library(pls)
+# pls_model = plsr(y~x,ncomp = 5,validation="LOO")
+# eval = MSEP(pls_model)
+# 
+# y_pca = prcomp(y)
+# plot(y_pca)
+# explained_var = y_pca$sdev^2/sum(y_pca$sdev^2)
+# y_pca_matrix = y_pca$x[,1:10]
+# 
+# # regress out sex, weight
+# 
+# get_explained_variance_using_PCA(x,y)
+# x = apply(x,2,regress_out,covs=covs)
+# y = apply(y,2,regress_out,covs=covs)
+# get_explained_variance_using_PCA(x,y)
 
 
 ```
