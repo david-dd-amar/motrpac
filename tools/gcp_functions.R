@@ -6,6 +6,50 @@ tryCatch({library(data.table)}, error = function(e) {
   print("Cannot load data.table, please install")
 })
 
+tissue_code2name = c(
+  "T30"="PaxGene_RNA",
+  "T31"="Plasma",
+  "T32"="Packed_Cells",
+  "T33"="Hippocampus",
+  "T34"="Cortex",
+  "T35"="Hypothalamus",
+  "T36"="Gastrocnemius",
+  "T37"="Vastus_Lateralis",
+  "T38"="Tibia",
+  "T39"="Heart",
+  "T40"="Kidney",
+  "T41"="Adrenals",
+  "T42"="Colon",
+  "T43"="Spleen",
+  "T44"="Testes",
+  "T45"="Ovaries",
+  "T46"="Brown_Adipose",
+  "T47"="White_Adipose",
+  "T48"="Aorta",
+  "T49"="Lung",
+  "T50"="Small_Intestine",
+  "T51"="Liver",
+  "T52"="Hippocampus_Powder",
+  "T53"="Cortex_Powder",
+  "T54"="Hypothalamus_Powder",
+  "T55"="Gastrocnemius_Powder",
+  "T56"="Vastus_Lateralis_Powder",
+  "T57"="Tibia_Powder",
+  "T58"="Heart_Powder",
+  "T59"="Kidney_Powder",
+  "T60"="Adrenal_Powder",
+  "T61"="Colon_Powder",
+  "T62"="Spleen_Powder",
+  "T63"="Testes_Powder",
+  "T64"="Ovaries_Powder",
+  "T65"="Aorta_Powder",
+  "T66"="Lung_Powder",
+  "T67"="Small_Intestine_Powder",
+  "T68"="Liver_Powder",
+  "T69"="Brown_Adipose_Powder",
+  "T70"="White_Adipose_Powder"
+)
+
 load_from_bucket<-function(file,bucket,delete=T){
   system(paste("~/google-cloud-sdk/bin/gsutil cp",
                paste(bucket,file,sep=""),
@@ -78,7 +122,7 @@ read_metabolomics_datasets_from_release_bucket<-function(bucket,local_path=NULL,
         named_bucket = paste(platform_bucket,"NAMED/",sep="")
         named_data = read_single_metabolomics_dataset(named_bucket)
         unnamed_bucket = paste(platform_bucket,"UNNAMED/",sep="")
-        dataset_name = paste(c(site,tissue,platform),collapse=",")
+        dataset_name = paste(c(site,tissue_code2name[tissue],platform),collapse=",")
         if(is.element(unnamed_bucket,set=platform_datasets)){
           unnamed_data = read_single_metabolomics_dataset(unnamed_bucket)
           merged_data = merge_metabolomics_datasets(named_data,unnamed_data)
@@ -244,7 +288,7 @@ read_proteomics_datasets_from_release_bucket<-function(bucket,local_path=NULL,de
         platform_bucket = platforms_in_bucket[platform]
         platform_bucket = get_files_in_bucket(platform_bucket)[1]
         print(length(get_files_in_bucket(platform_bucket)))
-        dataset_name = paste(c(site,tissue,platform),collapse=",")
+        dataset_name = paste(c(site,tissue_code2name[tissue],platform),collapse=",")
         dataset = read_single_proteomics_dataset(platform_bucket)
         proteomics_parsed_datasets[[dataset_name]] = dataset
         print(dataset_name)
@@ -255,9 +299,9 @@ read_proteomics_datasets_from_release_bucket<-function(bucket,local_path=NULL,de
   return(proteomics_parsed_datasets)
 }
 # # test
-# bucket = "gs://motrpac-internal-release1-1-results/proteomics"
-# save_to_bucket(proteomics_parsed_datasets,file="proteomics_parsed_datasets.RData",
-#                bucket = "gs://bic_data_analysis/pass1a/")
+bucket = "gs://motrpac-internal-release1-1-results/proteomics"
+save_to_bucket(proteomics_parsed_datasets,file="proteomics_parsed_datasets.RData",
+                bucket = "gs://bic_data_analysis/pass1a/")
 
 read_single_proteomics_dataset<-function(bucket,local_path=NULL,delete=T){
   download_bucket = download_bucket_files_to_local_dir(bucket,local_path)
@@ -287,7 +331,7 @@ read_proteomics_subdataset_by_regex<-function(downloaded_files,regex="ratio"){
   }
   
   data = fread(data_file,data.table = F,stringsAsFactors = F,header = T)
-  row_annot_cols = which(sapply(data,class)!="numeric")
+  row_annot_cols = which(!sapply(data,is.numeric))
   row_annot = as.matrix(data[,row_annot_cols])
   data = data[,-row_annot_cols]
   
