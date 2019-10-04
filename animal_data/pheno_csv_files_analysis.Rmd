@@ -6,25 +6,26 @@ output:
   html_notebook: default
 ---
 
-```{r,message=FALSE,warning=FALSE}
+```{r,message=FALSE,warning=FALSE,results="hide"}
 # Set the working directory to the folder with the data
 source("~/Desktop/repos/motrpac/tools/gcp_functions.R")
-# official rlease - august 2019:
-dmaqc_data_dir = "/Users/David/Desktop/MoTrPAC/data/pass_1a/dmaqc_pheno/official/3-Data_Sets/"
-# dictionary path
-dmaqc_dict_dir = "/Users/David/Desktop/MoTrPAC/data/pass_1a/dmaqc_pheno/official/1-Data_Dictionary/"
 
-# # take it directly from the buckets
-# local_path = "/Users/David/Desktop/MoTrPAC/data/pass_1a/dmaqc_pheno/release_10032019/"
-# system(paste("mkdir",local_path))
-# bucket = "gs://motrpac-portal-transfer-dmaqc/Official_DMAQC_TRANSFER/20190816_DMAQC_Transfer_PASS_1A.6M_1.00/"
-# dmaqc_data_dir = paste(local_path,"3-Data_Sets/",sep="")
+# # official rlease - august 2019:
+# dmaqc_data_dir = "/Users/David/Desktop/MoTrPAC/data/pass_1a/dmaqc_pheno/official/3-Data_Sets/"
 # # dictionary path
-# dmaqc_dict_dir = paste(local_path,"1-Data_Dictionary/",sep="")
-# download_bucket_files_to_local_dir(bucket = paste(bucket,"3-Data_Sets/",sep=""),
-#                                    local_path = dmaqc_data_dir)
-# download_bucket_files_to_local_dir(bucket = paste(bucket,"1-Data_Dictionary/",sep=""),
-#                                    local_path = dmaqc_dict_dir)
+# dmaqc_dict_dir = "/Users/David/Desktop/MoTrPAC/data/pass_1a/dmaqc_pheno/official/1-Data_Dictionary/"
+
+# take it directly from the buckets
+local_path = "/Users/David/Desktop/MoTrPAC/data/pass_1a/dmaqc_pheno/release_10032019/"
+system(paste("mkdir",local_path))
+bucket = "gs://motrpac-portal-transfer-dmaqc/Official_DMAQC_TRANSFER/20190816_DMAQC_Transfer_PASS_1A.6M_1.00/"
+dmaqc_data_dir = paste(local_path,"3-Data_Sets/",sep="")
+# dictionary path
+dmaqc_dict_dir = paste(local_path,"1-Data_Dictionary/",sep="")
+download_bucket_files_to_local_dir(bucket = paste(bucket,"3-Data_Sets/",sep=""),
+                                   local_path = dmaqc_data_dir)
+download_bucket_files_to_local_dir(bucket = paste(bucket,"1-Data_Dictionary/",sep=""),
+                                   local_path = dmaqc_dict_dir)
 
 all_csvs = list.files(dmaqc_data_dir,full.names = T) # get all files in dir
 all_csvs = all_csvs[grepl(".csv$",all_csvs)] # make sure we take csv only
@@ -354,6 +355,7 @@ Below, we show that our merged table and computations in R result in the same nu
 # for an extra QC)
 calc_data_file = all_csvs[grepl("Calculated.Variables",all_csvs)]
 calc_data = read.csv(calc_data_file)
+colnames(calc_data) = tolower(colnames(calc_data))
 rownames(calc_data) = calc_data$labelid
 # Extract the relevant columns from our merged dataset
 cols_for_analysis = c("labelid",
@@ -368,6 +370,7 @@ cols_for_analysis = c("labelid",
 for(j in seq(2,length(cols_for_analysis),by=2)){
   bic_version = unique(merged_dmaqc_data[,cols_for_analysis[c(1,j,j+1)]])
   rownames(bic_version) = bic_version[,1]
+  table(is.element(rownames(calc_data),merged_dmaqc_data$labelid))
   dmaqc_version = calc_data[rownames(bic_version),c(3,3+j/2)]
   if(mode(bic_version[,2])=="character"){
     bic_version_score = as.difftime(bic_version[,2])-as.difftime(bic_version[,3])
@@ -477,19 +480,39 @@ I3 = I3*60
 merged_dmaqc_data$calculated.variables.time_complete_to_death_min = I1
 merged_dmaqc_data$calculated.variables.time_death_to_collect_min = I2
 merged_dmaqc_data$calculated.variables.time_collect_to_freeze_min = I3
+# define the general time to freeze variable
+merged_dmaqc_data$calculated.variables.time_to_freeze = 
+  merged_dmaqc_data$calculated.variables.time_death_to_collect_min + 
+  merged_dmaqc_data$calculated.variables.time_collect_to_freeze_min
 
 # Add to dictionary
 merged_column_dictionary = rbind(merged_column_dictionary,
   c("calculated.variables.time_complete_to_death_min",
-    "numeric","","","calculated.variables")
+    "time in minutes from exercise test completion to death",
+    "numeric","","",
+    min(I1,na.rm=T),max(I1,na.rm=T),
+    "calculated.variables")
 )
 merged_column_dictionary = rbind(merged_column_dictionary,
   c("calculated.variables.time_death_to_collect_min",
-    "numeric","","","calculated.variables")
+    "time in minutes from death to the sample collection",
+    "numeric","","",
+    min(I2,na.rm=T),max(I2,na.rm=T),
+    "calculated.variables")
 )
 merged_column_dictionary = rbind(merged_column_dictionary,
   c("calculated.variables.time_collect_to_freeze_min",
-    "numeric","","","calculated.variables")
+    "time in minutes from sample collection to sample freeze",
+    "numeric","","",
+    min(I3,na.rm=T),max(I3,na.rm=T),
+    "calculated.variables")
+)
+merged_column_dictionary = rbind(merged_column_dictionary,
+  c("calculated.variables.time_to_freeze",
+    "time in minutes from death to sample freeze",
+    "numeric","","",
+    min(I3+I2,na.rm=T),max(I3+I2,na.rm=T),
+    "calculated.variables")
 )
 
 # look at time vs sex diffs in each tissue
@@ -625,13 +648,12 @@ abline(h = 2,lwd=2,col="red",lty=2)
 merged_column_dictionary = as.matrix(merged_column_dictionary)
 # All NAs are ""
 merged_column_dictionary[is.na(merged_column_dictionary)] = ""
-# Change the last column name
-colnames(merged_column_dictionary)[ncol(merged_column_dictionary)] = "Field.Type"
 # Remove duplications
 merged_column_dictionary = unique(merged_column_dictionary)
 # Add the vial label
 merged_column_dictionary = rbind(
-  c("viallabel","varchar",NA,NA,"General_sample_ID"),
+  c("viallabel","The primary analyzed sample id, corresponds to a row in the data table",
+    "varchar",NA,NA,NA,NA,""),
   merged_column_dictionary
 )
 
@@ -664,7 +686,9 @@ system(paste("rm", dictfname))
 ## Compare to the older version of the data
 
 ```{r}
-olderversion = load_from_bucket("merged_dmaqc_data.RData",bucket = "gs://bic_data_analysis/pass1a/pheno_dmaqc/")
+olderversion = 
+  load_from_bucket("merged_dmaqc_data.RData",
+                   bucket = "gs://bic_data_analysis/pass1a/pheno_dmaqc/")
 olderversion = olderversion[[1]]
 setdiff(colnames(merged_dmaqc_data),colnames(olderversion))
 setdiff(colnames(olderversion),colnames(merged_dmaqc_data))
@@ -672,7 +696,9 @@ shared_cols = intersect(colnames(olderversion),colnames(merged_dmaqc_data))
 viallabels = as.character(merged_dmaqc_data$viallabel)
 rownames(merged_dmaqc_data) = as.character(merged_dmaqc_data$viallabel)
 rownames(olderversion) = as.character(olderversion$viallabel)
-diffs = olderversion[viallabels,shared_cols] == merged_dmaqc_data[viallabels,shared_cols]
+diffs = olderversion[viallabels,shared_cols] != merged_dmaqc_data[viallabels,shared_cols]
 table(diffs)
+diff_by_col = colSums(diffs,na.rm = T)
+diff_by_col[diff_by_col>0]
 ```
 

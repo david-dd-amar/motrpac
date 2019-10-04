@@ -129,23 +129,63 @@
 \begin{Highlighting}[]
 \CommentTok{# Set the working directory to the folder with the data}
 \KeywordTok{source}\NormalTok{(}\StringTok{"~/Desktop/repos/motrpac/tools/gcp_functions.R"}\NormalTok{)}
-\CommentTok{# official rlease - august 2019:}
-\NormalTok{dmaqc_data_dir =}\StringTok{ "/Users/David/Desktop/MoTrPAC/data/pass_1a/dmaqc_pheno/official/3-Data_Sets/"}
-\CommentTok{# dictionary path}
-\NormalTok{dmaqc_dict_dir =}\StringTok{ "/Users/David/Desktop/MoTrPAC/data/pass_1a/dmaqc_pheno/official/1-Data_Dictionary/"}
 
-\CommentTok{# # take it directly from the buckets}
-\CommentTok{# local_path = "/Users/David/Desktop/MoTrPAC/data/pass_1a/dmaqc_pheno/release_10032019/"}
-\CommentTok{# system(paste("mkdir",local_path))}
-\CommentTok{# bucket = "gs://motrpac-portal-transfer-dmaqc/Official_DMAQC_TRANSFER/20190816_DMAQC_Transfer_PASS_1A.6M_1.00/"}
-\CommentTok{# dmaqc_data_dir = paste(local_path,"3-Data_Sets/",sep="")}
+\CommentTok{# # official rlease - august 2019:}
+\CommentTok{# dmaqc_data_dir = "/Users/David/Desktop/MoTrPAC/data/pass_1a/dmaqc_pheno/official/3-Data_Sets/"}
 \CommentTok{# # dictionary path}
-\CommentTok{# dmaqc_dict_dir = paste(local_path,"1-Data_Dictionary/",sep="")}
-\CommentTok{# download_bucket_files_to_local_dir(bucket = paste(bucket,"3-Data_Sets/",sep=""),}
-\CommentTok{#                                    local_path = dmaqc_data_dir)}
-\CommentTok{# download_bucket_files_to_local_dir(bucket = paste(bucket,"1-Data_Dictionary/",sep=""),}
-\CommentTok{#                                    local_path = dmaqc_dict_dir)}
+\CommentTok{# dmaqc_dict_dir = "/Users/David/Desktop/MoTrPAC/data/pass_1a/dmaqc_pheno/official/1-Data_Dictionary/"}
 
+\CommentTok{# take it directly from the buckets}
+\NormalTok{local_path =}\StringTok{ "/Users/David/Desktop/MoTrPAC/data/pass_1a/dmaqc_pheno/release_10032019/"}
+\KeywordTok{system}\NormalTok{(}\KeywordTok{paste}\NormalTok{(}\StringTok{"mkdir"}\NormalTok{,local_path))}
+\NormalTok{bucket =}\StringTok{ "gs://motrpac-portal-transfer-dmaqc/Official_DMAQC_TRANSFER/20190816_DMAQC_Transfer_PASS_1A.6M_1.00/"}
+\NormalTok{dmaqc_data_dir =}\StringTok{ }\KeywordTok{paste}\NormalTok{(local_path,}\StringTok{"3-Data_Sets/"}\NormalTok{,}\DataTypeTok{sep=}\StringTok{""}\NormalTok{)}
+\CommentTok{# dictionary path}
+\NormalTok{dmaqc_dict_dir =}\StringTok{ }\KeywordTok{paste}\NormalTok{(local_path,}\StringTok{"1-Data_Dictionary/"}\NormalTok{,}\DataTypeTok{sep=}\StringTok{""}\NormalTok{)}
+\KeywordTok{download_bucket_files_to_local_dir}\NormalTok{(}\DataTypeTok{bucket =} \KeywordTok{paste}\NormalTok{(bucket,}\StringTok{"3-Data_Sets/"}\NormalTok{,}\DataTypeTok{sep=}\StringTok{""}\NormalTok{),}
+                                   \DataTypeTok{local_path =}\NormalTok{ dmaqc_data_dir)}
+\end{Highlighting}
+\end{Shaded}
+
+\begin{verbatim}
+## $downloaded_files
+## [1] "/Users/David/Desktop/MoTrPAC/data/pass_1a/dmaqc_pheno/release_10032019/3-Data_Sets//DMAQC_Transfer_PASS_1A.6M_1.00_DS_MoTrPAC.PASS_Animal.Acute.Test.csv"          
+## [2] "/Users/David/Desktop/MoTrPAC/data/pass_1a/dmaqc_pheno/release_10032019/3-Data_Sets//DMAQC_Transfer_PASS_1A.6M_1.00_DS_MoTrPAC.PASS_Animal.BICLabelData.csv"        
+## [3] "/Users/David/Desktop/MoTrPAC/data/pass_1a/dmaqc_pheno/release_10032019/3-Data_Sets//DMAQC_Transfer_PASS_1A.6M_1.00_DS_MoTrPAC.PASS_Animal.Calculated.Variables.csv"
+## [4] "/Users/David/Desktop/MoTrPAC/data/pass_1a/dmaqc_pheno/release_10032019/3-Data_Sets//DMAQC_Transfer_PASS_1A.6M_1.00_DS_MoTrPAC.PASS_Animal.Familiarization.csv"     
+## [5] "/Users/David/Desktop/MoTrPAC/data/pass_1a/dmaqc_pheno/release_10032019/3-Data_Sets//DMAQC_Transfer_PASS_1A.6M_1.00_DS_MoTrPAC.PASS_Animal.Key.csv"                 
+## [6] "/Users/David/Desktop/MoTrPAC/data/pass_1a/dmaqc_pheno/release_10032019/3-Data_Sets//DMAQC_Transfer_PASS_1A.6M_1.00_DS_MoTrPAC.PASS_Animal.Registration.csv"        
+## [7] "/Users/David/Desktop/MoTrPAC/data/pass_1a/dmaqc_pheno/release_10032019/3-Data_Sets//DMAQC_Transfer_PASS_1A.6M_1.00_DS_MoTrPAC.PASS_Animal.Specimen.Collection.csv" 
+## [8] "/Users/David/Desktop/MoTrPAC/data/pass_1a/dmaqc_pheno/release_10032019/3-Data_Sets//DMAQC_Transfer_PASS_1A.6M_1.00_DS_MoTrPAC.PASS_Animal.Specimen.Processing.csv" 
+## 
+## $local_path
+## [1] "/Users/David/Desktop/MoTrPAC/data/pass_1a/dmaqc_pheno/release_10032019/3-Data_Sets/"
+\end{verbatim}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\KeywordTok{download_bucket_files_to_local_dir}\NormalTok{(}\DataTypeTok{bucket =} \KeywordTok{paste}\NormalTok{(bucket,}\StringTok{"1-Data_Dictionary/"}\NormalTok{,}\DataTypeTok{sep=}\StringTok{""}\NormalTok{),}
+                                   \DataTypeTok{local_path =}\NormalTok{ dmaqc_dict_dir)}
+\end{Highlighting}
+\end{Shaded}
+
+\begin{verbatim}
+## $downloaded_files
+## [1] "/Users/David/Desktop/MoTrPAC/data/pass_1a/dmaqc_pheno/release_10032019/1-Data_Dictionary//DMAQC_Transfer_PASS_1A.6M_1.00_DD_MoTrPAC.PASS_Animal.Acute.Test.csv"          
+## [2] "/Users/David/Desktop/MoTrPAC/data/pass_1a/dmaqc_pheno/release_10032019/1-Data_Dictionary//DMAQC_Transfer_PASS_1A.6M_1.00_DD_MoTrPAC.PASS_Animal.BICLabelData.csv"        
+## [3] "/Users/David/Desktop/MoTrPAC/data/pass_1a/dmaqc_pheno/release_10032019/1-Data_Dictionary//DMAQC_Transfer_PASS_1A.6M_1.00_DD_MoTrPAC.PASS_Animal.Calculated.Variables.csv"
+## [4] "/Users/David/Desktop/MoTrPAC/data/pass_1a/dmaqc_pheno/release_10032019/1-Data_Dictionary//DMAQC_Transfer_PASS_1A.6M_1.00_DD_MoTrPAC.PASS_Animal.Familiarization.csv"     
+## [5] "/Users/David/Desktop/MoTrPAC/data/pass_1a/dmaqc_pheno/release_10032019/1-Data_Dictionary//DMAQC_Transfer_PASS_1A.6M_1.00_DD_MoTrPAC.PASS_Animal.Key.csv"                 
+## [6] "/Users/David/Desktop/MoTrPAC/data/pass_1a/dmaqc_pheno/release_10032019/1-Data_Dictionary//DMAQC_Transfer_PASS_1A.6M_1.00_DD_MoTrPAC.PASS_Animal.Registration.csv"        
+## [7] "/Users/David/Desktop/MoTrPAC/data/pass_1a/dmaqc_pheno/release_10032019/1-Data_Dictionary//DMAQC_Transfer_PASS_1A.6M_1.00_DD_MoTrPAC.PASS_Animal.Specimen.Collection.csv" 
+## [8] "/Users/David/Desktop/MoTrPAC/data/pass_1a/dmaqc_pheno/release_10032019/1-Data_Dictionary//DMAQC_Transfer_PASS_1A.6M_1.00_DD_MoTrPAC.PASS_Animal.Specimen.Processing.csv" 
+## 
+## $local_path
+## [1] "/Users/David/Desktop/MoTrPAC/data/pass_1a/dmaqc_pheno/release_10032019/1-Data_Dictionary/"
+\end{verbatim}
+
+\begin{Shaded}
+\begin{Highlighting}[]
 \NormalTok{all_csvs =}\StringTok{ }\KeywordTok{list.files}\NormalTok{(dmaqc_data_dir,}\DataTypeTok{full.names =}\NormalTok{ T) }\CommentTok{# get all files in dir}
 \NormalTok{all_csvs =}\StringTok{ }\NormalTok{all_csvs[}\KeywordTok{grepl}\NormalTok{(}\StringTok{".csv$"}\NormalTok{,all_csvs)] }\CommentTok{# make sure we take csv only}
 \CommentTok{# read all files}
@@ -177,7 +217,7 @@ statistics}\label{sanity-check-acute-tests-basic-statistics}
 \end{Shaded}
 
 \begin{verbatim}
-## [1] 108  23
+## [1] 108  27
 \end{verbatim}
 
 \begin{Shaded}
@@ -561,7 +601,7 @@ generate a single metadata table that we can share with other sites.
     \KeywordTok{print}\NormalTok{(}\KeywordTok{paste}\NormalTok{(}\StringTok{"Error, missing form:"}\NormalTok{,currname))}
 \NormalTok{  \}}
 \NormalTok{  curr_data =}\StringTok{ }\NormalTok{csv_data[[form_ind]]}
-  
+  \CommentTok{# make sure we do not change the names of the id columns}
   \KeywordTok{colnames}\NormalTok{(curr_data) =}\StringTok{ }\KeywordTok{tolower}\NormalTok{(}\KeywordTok{colnames}\NormalTok{(curr_data))}
 \NormalTok{  columns_to_append =}\StringTok{ }\OperatorTok{!}\KeywordTok{is.element}\NormalTok{(}\KeywordTok{colnames}\NormalTok{(curr_data),}
               \DataTypeTok{set =} \KeywordTok{c}\NormalTok{(}\StringTok{"bid"}\NormalTok{,}\StringTok{"pid"}\NormalTok{,}\StringTok{"labelid"}\NormalTok{,}\StringTok{"vialid"}\NormalTok{,}\StringTok{"viallabel"}\NormalTok{))}
@@ -613,7 +653,7 @@ generate a single metadata table that we can share with other sites.
 \end{Shaded}
 
 \begin{verbatim}
-## [1] 2699  111
+## [1] 2699  136
 \end{verbatim}
 
 \begin{Shaded}
@@ -659,7 +699,7 @@ generate a single metadata table that we can share with other sites.
 \end{Shaded}
 
 \begin{verbatim}
-## [1] 1638  111
+## [1] 1638  136
 \end{verbatim}
 
 \begin{Shaded}
@@ -682,7 +722,7 @@ generate a single metadata table that we can share with other sites.
 \end{Shaded}
 
 \begin{verbatim}
-## [1] 8616  114
+## [1] 8616  141
 \end{verbatim}
 
 \begin{Shaded}
@@ -693,21 +733,27 @@ generate a single metadata table that we can share with other sites.
 \NormalTok{#####}
 \NormalTok{#####}
 \NormalTok{merged_column_dictionary =}\StringTok{ }\KeywordTok{c}\NormalTok{()}
-\NormalTok{cols_to_take =}\StringTok{ }\KeywordTok{c}\NormalTok{(}\StringTok{"Field.Name"}\NormalTok{,}\StringTok{"Data.Type"}\NormalTok{,}\StringTok{"Categorical.Values"}\NormalTok{,}
-                 \StringTok{"Categorical.Definitions"}\NormalTok{)}
+\NormalTok{cols_to_take =}\StringTok{ }\KeywordTok{c}\NormalTok{(}\StringTok{"Field.Name"}\NormalTok{,}\StringTok{"Data.Type"}\NormalTok{,}
+                 \StringTok{"Alias..Field.Name.description."}\NormalTok{,}
+                 \StringTok{"Categorical.Values"}\NormalTok{,}
+                 \StringTok{"Categorical.Definitions"}\NormalTok{,}
+                 \StringTok{"Continous.Range.Min"}\NormalTok{,}
+                 \StringTok{"Continous.Range.Max"}\NormalTok{)}
 \ControlFlowTok{for}\NormalTok{(currname }\ControlFlowTok{in}\NormalTok{ formnames)\{}
 \NormalTok{  tmp_dict_data =}\StringTok{ }\NormalTok{dict_data[[}\KeywordTok{which}\NormalTok{(}\KeywordTok{grepl}\NormalTok{(currname,}\KeywordTok{names}\NormalTok{(dict_data)))]]}
-  \CommentTok{# print(tmp_dict_data[grepl("pid",tmp_dict_data[,1]),1])}
-\NormalTok{  tmp_dict_data =}\StringTok{ }\NormalTok{tmp_dict_data[,cols_to_take]}
-\NormalTok{  tmp_dict_data[,}\DecValTok{1}\NormalTok{] =}\StringTok{ }\KeywordTok{paste}\NormalTok{(currname,tmp_dict_data[,}\DecValTok{1}\NormalTok{],}\DataTypeTok{sep=}\StringTok{"."}\NormalTok{)}
+  \CommentTok{# take the required columns, feel in missing ones if necessary}
+\NormalTok{  tmp_dict_data =}\StringTok{ }\NormalTok{tmp_dict_data[,}\KeywordTok{intersect}\NormalTok{(}\KeywordTok{colnames}\NormalTok{(tmp_dict_data),cols_to_take)]}
+  \ControlFlowTok{for}\NormalTok{(missing_col }\ControlFlowTok{in} \KeywordTok{setdiff}\NormalTok{(cols_to_take,}\KeywordTok{colnames}\NormalTok{(tmp_dict_data)))\{}
+\NormalTok{    tmp_dict_data[[missing_col]] =}\StringTok{ }\KeywordTok{rep}\NormalTok{(}\OtherTok{NA}\NormalTok{,}\KeywordTok{nrow}\NormalTok{(tmp_dict_data))}
+\NormalTok{  \}}
+  \CommentTok{# make sure we do not change the names of the id columns}
 \NormalTok{  tmp_dict_data[,}\DecValTok{1}\NormalTok{] =}\StringTok{ }\KeywordTok{tolower}\NormalTok{(tmp_dict_data[,}\DecValTok{1}\NormalTok{])}
-\NormalTok{  tmp_dict_data[}\KeywordTok{grepl}\NormalTok{(}\StringTok{".pid$"}\NormalTok{,tmp_dict_data[,}\DecValTok{1}\NormalTok{]),}\DecValTok{1}\NormalTok{]=}\StringTok{"pid"}
-\NormalTok{  tmp_dict_data[}\KeywordTok{grepl}\NormalTok{(}\StringTok{".bid$"}\NormalTok{,tmp_dict_data[,}\DecValTok{1}\NormalTok{]),}\DecValTok{1}\NormalTok{]=}\StringTok{"bid"}
-\NormalTok{  tmp_dict_data[}\KeywordTok{grepl}\NormalTok{(}\StringTok{".labelid$"}\NormalTok{,tmp_dict_data[,}\DecValTok{1}\NormalTok{]),}\DecValTok{1}\NormalTok{]=}\StringTok{"labelid"}
-\NormalTok{  tmp_dict_data[}\KeywordTok{grepl}\NormalTok{(}\StringTok{".vialid$"}\NormalTok{,tmp_dict_data[,}\DecValTok{1}\NormalTok{]),}\DecValTok{1}\NormalTok{]=}\StringTok{"vialid"}
-\NormalTok{  tmp_dict_data[}\KeywordTok{grepl}\NormalTok{(}\StringTok{".viallabel$"}\NormalTok{,tmp_dict_data[,}\DecValTok{1}\NormalTok{]),}\DecValTok{1}\NormalTok{]=}\StringTok{"viallabel"}
-\NormalTok{  tmp_dict_data[,}\DecValTok{1}\NormalTok{] =}\StringTok{ }\KeywordTok{tolower}\NormalTok{(tmp_dict_data[,}\DecValTok{1}\NormalTok{])}
-\NormalTok{  tmp_dict_data =}\StringTok{ }\KeywordTok{cbind}\NormalTok{(tmp_dict_data,}\KeywordTok{rep}\NormalTok{(currname,}\KeywordTok{nrow}\NormalTok{(tmp_dict_data)))}
+\NormalTok{  rows_to_append =}\StringTok{ }\OperatorTok{!}\KeywordTok{is.element}\NormalTok{(tmp_dict_data[,}\DecValTok{1}\NormalTok{],}
+              \DataTypeTok{set =} \KeywordTok{c}\NormalTok{(}\StringTok{"bid"}\NormalTok{,}\StringTok{"pid"}\NormalTok{,}\StringTok{"labelid"}\NormalTok{,}\StringTok{"vialid"}\NormalTok{,}\StringTok{"viallabel"}\NormalTok{))}
+\NormalTok{  tmp_dict_data[rows_to_append,}\DecValTok{1}\NormalTok{] =}\StringTok{ }
+\StringTok{    }\KeywordTok{paste}\NormalTok{(}\KeywordTok{tolower}\NormalTok{(currname),tmp_dict_data[rows_to_append,}\DecValTok{1}\NormalTok{],}\DataTypeTok{sep=}\StringTok{"."}\NormalTok{)}
+\NormalTok{  tmp_dict_data}\OperatorTok{$}\NormalTok{Form.prefix =}\StringTok{ }\KeywordTok{rep}\NormalTok{(currname,}\KeywordTok{nrow}\NormalTok{(tmp_dict_data))}
+  
 \NormalTok{  merged_column_dictionary =}\StringTok{ }\KeywordTok{rbind}\NormalTok{(merged_column_dictionary,tmp_dict_data)}
 \NormalTok{\}}
 
@@ -718,7 +764,7 @@ generate a single metadata table that we can share with other sites.
 \end{Shaded}
 
 \begin{verbatim}
-## [1] 8616  114
+## [1] 8616  141
 \end{verbatim}
 
 \begin{Shaded}
@@ -731,7 +777,7 @@ generate a single metadata table that we can share with other sites.
 \end{Shaded}
 
 \begin{verbatim}
-## [1] 155   5
+## [1] 188   8
 \end{verbatim}
 
 \begin{Shaded}
@@ -776,6 +822,7 @@ same numbers.
 \CommentTok{# for an extra QC)}
 \NormalTok{calc_data_file =}\StringTok{ }\NormalTok{all_csvs[}\KeywordTok{grepl}\NormalTok{(}\StringTok{"Calculated.Variables"}\NormalTok{,all_csvs)]}
 \NormalTok{calc_data =}\StringTok{ }\KeywordTok{read.csv}\NormalTok{(calc_data_file)}
+\KeywordTok{colnames}\NormalTok{(calc_data) =}\StringTok{ }\KeywordTok{tolower}\NormalTok{(}\KeywordTok{colnames}\NormalTok{(calc_data))}
 \KeywordTok{rownames}\NormalTok{(calc_data) =}\StringTok{ }\NormalTok{calc_data}\OperatorTok{$}\NormalTok{labelid}
 \CommentTok{# Extract the relevant columns from our merged dataset}
 \NormalTok{cols_for_analysis =}\StringTok{ }\KeywordTok{c}\NormalTok{(}\StringTok{"labelid"}\NormalTok{,}
@@ -790,6 +837,7 @@ same numbers.
 \ControlFlowTok{for}\NormalTok{(j }\ControlFlowTok{in} \KeywordTok{seq}\NormalTok{(}\DecValTok{2}\NormalTok{,}\KeywordTok{length}\NormalTok{(cols_for_analysis),}\DataTypeTok{by=}\DecValTok{2}\NormalTok{))\{}
 \NormalTok{  bic_version =}\StringTok{ }\KeywordTok{unique}\NormalTok{(merged_dmaqc_data[,cols_for_analysis[}\KeywordTok{c}\NormalTok{(}\DecValTok{1}\NormalTok{,j,j}\OperatorTok{+}\DecValTok{1}\NormalTok{)]])}
   \KeywordTok{rownames}\NormalTok{(bic_version) =}\StringTok{ }\NormalTok{bic_version[,}\DecValTok{1}\NormalTok{]}
+  \KeywordTok{table}\NormalTok{(}\KeywordTok{is.element}\NormalTok{(}\KeywordTok{rownames}\NormalTok{(calc_data),merged_dmaqc_data}\OperatorTok{$}\NormalTok{labelid))}
 \NormalTok{  dmaqc_version =}\StringTok{ }\NormalTok{calc_data[}\KeywordTok{rownames}\NormalTok{(bic_version),}\KeywordTok{c}\NormalTok{(}\DecValTok{3}\NormalTok{,}\DecValTok{3}\OperatorTok{+}\NormalTok{j}\OperatorTok{/}\DecValTok{2}\NormalTok{)]}
   \ControlFlowTok{if}\NormalTok{(}\KeywordTok{mode}\NormalTok{(bic_version[,}\DecValTok{2}\NormalTok{])}\OperatorTok{==}\StringTok{"character"}\NormalTok{)\{}
 \NormalTok{    bic_version_score =}\StringTok{ }\KeywordTok{as.difftime}\NormalTok{(bic_version[,}\DecValTok{2}\NormalTok{])}\OperatorTok{-}\KeywordTok{as.difftime}\NormalTok{(bic_version[,}\DecValTok{3}\NormalTok{])}
@@ -965,50 +1013,41 @@ definitions}\label{qc-tests-and-time-definitions}
 \NormalTok{merged_dmaqc_data}\OperatorTok{$}\NormalTok{calculated.variables.time_complete_to_death_min =}\StringTok{ }\NormalTok{I1}
 \NormalTok{merged_dmaqc_data}\OperatorTok{$}\NormalTok{calculated.variables.time_death_to_collect_min =}\StringTok{ }\NormalTok{I2}
 \NormalTok{merged_dmaqc_data}\OperatorTok{$}\NormalTok{calculated.variables.time_collect_to_freeze_min =}\StringTok{ }\NormalTok{I3}
+\CommentTok{# define the general time to freeze variable}
+\NormalTok{merged_dmaqc_data}\OperatorTok{$}\NormalTok{calculated.variables.time_to_freeze =}\StringTok{ }
+\StringTok{  }\NormalTok{merged_dmaqc_data}\OperatorTok{$}\NormalTok{calculated.variables.time_death_to_collect_min }\OperatorTok{+}\StringTok{ }
+\StringTok{  }\NormalTok{merged_dmaqc_data}\OperatorTok{$}\NormalTok{calculated.variables.time_collect_to_freeze_min}
 
 \CommentTok{# Add to dictionary}
 \NormalTok{merged_column_dictionary =}\StringTok{ }\KeywordTok{rbind}\NormalTok{(merged_column_dictionary,}
   \KeywordTok{c}\NormalTok{(}\StringTok{"calculated.variables.time_complete_to_death_min"}\NormalTok{,}
-    \StringTok{"numeric"}\NormalTok{,}\StringTok{""}\NormalTok{,}\StringTok{""}\NormalTok{,}\StringTok{"calculated.variables"}\NormalTok{)}
+    \StringTok{"time in minutes from exercise test completion to death"}\NormalTok{,}
+    \StringTok{"numeric"}\NormalTok{,}\StringTok{""}\NormalTok{,}\StringTok{""}\NormalTok{,}
+    \KeywordTok{min}\NormalTok{(I1,}\DataTypeTok{na.rm=}\NormalTok{T),}\KeywordTok{max}\NormalTok{(I1,}\DataTypeTok{na.rm=}\NormalTok{T),}
+    \StringTok{"calculated.variables"}\NormalTok{)}
 \NormalTok{)}
-\end{Highlighting}
-\end{Shaded}
-
-\begin{verbatim}
-## Warning in `[<-.factor`(`*tmp*`, ri, value = "calculated.variables"):
-## invalid factor level, NA generated
-\end{verbatim}
-
-\begin{Shaded}
-\begin{Highlighting}[]
 \NormalTok{merged_column_dictionary =}\StringTok{ }\KeywordTok{rbind}\NormalTok{(merged_column_dictionary,}
   \KeywordTok{c}\NormalTok{(}\StringTok{"calculated.variables.time_death_to_collect_min"}\NormalTok{,}
-    \StringTok{"numeric"}\NormalTok{,}\StringTok{""}\NormalTok{,}\StringTok{""}\NormalTok{,}\StringTok{"calculated.variables"}\NormalTok{)}
+    \StringTok{"time in minutes from death to the sample collection"}\NormalTok{,}
+    \StringTok{"numeric"}\NormalTok{,}\StringTok{""}\NormalTok{,}\StringTok{""}\NormalTok{,}
+    \KeywordTok{min}\NormalTok{(I2,}\DataTypeTok{na.rm=}\NormalTok{T),}\KeywordTok{max}\NormalTok{(I2,}\DataTypeTok{na.rm=}\NormalTok{T),}
+    \StringTok{"calculated.variables"}\NormalTok{)}
 \NormalTok{)}
-\end{Highlighting}
-\end{Shaded}
-
-\begin{verbatim}
-## Warning in `[<-.factor`(`*tmp*`, ri, value = "calculated.variables"):
-## invalid factor level, NA generated
-\end{verbatim}
-
-\begin{Shaded}
-\begin{Highlighting}[]
 \NormalTok{merged_column_dictionary =}\StringTok{ }\KeywordTok{rbind}\NormalTok{(merged_column_dictionary,}
   \KeywordTok{c}\NormalTok{(}\StringTok{"calculated.variables.time_collect_to_freeze_min"}\NormalTok{,}
-    \StringTok{"numeric"}\NormalTok{,}\StringTok{""}\NormalTok{,}\StringTok{""}\NormalTok{,}\StringTok{"calculated.variables"}\NormalTok{)}
+    \StringTok{"time in minutes from sample collection to sample freeze"}\NormalTok{,}
+    \StringTok{"numeric"}\NormalTok{,}\StringTok{""}\NormalTok{,}\StringTok{""}\NormalTok{,}
+    \KeywordTok{min}\NormalTok{(I3,}\DataTypeTok{na.rm=}\NormalTok{T),}\KeywordTok{max}\NormalTok{(I3,}\DataTypeTok{na.rm=}\NormalTok{T),}
+    \StringTok{"calculated.variables"}\NormalTok{)}
 \NormalTok{)}
-\end{Highlighting}
-\end{Shaded}
+\NormalTok{merged_column_dictionary =}\StringTok{ }\KeywordTok{rbind}\NormalTok{(merged_column_dictionary,}
+  \KeywordTok{c}\NormalTok{(}\StringTok{"calculated.variables.time_to_freeze"}\NormalTok{,}
+    \StringTok{"time in minutes from death to sample freeze"}\NormalTok{,}
+    \StringTok{"numeric"}\NormalTok{,}\StringTok{""}\NormalTok{,}\StringTok{""}\NormalTok{,}
+    \KeywordTok{min}\NormalTok{(I3}\OperatorTok{+}\NormalTok{I2,}\DataTypeTok{na.rm=}\NormalTok{T),}\KeywordTok{max}\NormalTok{(I3}\OperatorTok{+}\NormalTok{I2,}\DataTypeTok{na.rm=}\NormalTok{T),}
+    \StringTok{"calculated.variables"}\NormalTok{)}
+\NormalTok{)}
 
-\begin{verbatim}
-## Warning in `[<-.factor`(`*tmp*`, ri, value = "calculated.variables"):
-## invalid factor level, NA generated
-\end{verbatim}
-
-\begin{Shaded}
-\begin{Highlighting}[]
 \CommentTok{# look at time vs sex diffs in each tissue}
 \NormalTok{tmpx =}\StringTok{ }\KeywordTok{cbind}\NormalTok{(}
 \NormalTok{  merged_dmaqc_data}\OperatorTok{$}\NormalTok{labelid,}
@@ -1114,13 +1153,12 @@ cloud}\label{save-the-merged-datasets-in-the-cloud}
 \NormalTok{merged_column_dictionary =}\StringTok{ }\KeywordTok{as.matrix}\NormalTok{(merged_column_dictionary)}
 \CommentTok{# All NAs are ""}
 \NormalTok{merged_column_dictionary[}\KeywordTok{is.na}\NormalTok{(merged_column_dictionary)] =}\StringTok{ ""}
-\CommentTok{# Change the last column name}
-\KeywordTok{colnames}\NormalTok{(merged_column_dictionary)[}\KeywordTok{ncol}\NormalTok{(merged_column_dictionary)] =}\StringTok{ "Field.Type"}
 \CommentTok{# Remove duplications}
 \NormalTok{merged_column_dictionary =}\StringTok{ }\KeywordTok{unique}\NormalTok{(merged_column_dictionary)}
 \CommentTok{# Add the vial label}
 \NormalTok{merged_column_dictionary =}\StringTok{ }\KeywordTok{rbind}\NormalTok{(}
-  \KeywordTok{c}\NormalTok{(}\StringTok{"viallabel"}\NormalTok{,}\StringTok{"varchar"}\NormalTok{,}\OtherTok{NA}\NormalTok{,}\OtherTok{NA}\NormalTok{,}\StringTok{"General_sample_ID"}\NormalTok{),}
+  \KeywordTok{c}\NormalTok{(}\StringTok{"viallabel"}\NormalTok{,}\StringTok{"The primary analyzed sample id, corresponds to a row in the data table"}\NormalTok{,}
+    \StringTok{"varchar"}\NormalTok{,}\OtherTok{NA}\NormalTok{,}\OtherTok{NA}\NormalTok{,}\OtherTok{NA}\NormalTok{,}\OtherTok{NA}\NormalTok{,}\StringTok{""}\NormalTok{),}
 \NormalTok{  merged_column_dictionary}
 \NormalTok{)}
 
@@ -1156,14 +1194,43 @@ data}\label{compare-to-the-older-version-of-the-data}
 
 \begin{Shaded}
 \begin{Highlighting}[]
-\NormalTok{olderversion =}\StringTok{ }\KeywordTok{load_from_bucket}\NormalTok{(}\StringTok{"merged_dmaqc_data.RData"}\NormalTok{,}\DataTypeTok{bucket =} \StringTok{"gs://bic_data_analysis/pass1a/pheno_dmaqc/"}\NormalTok{)}
+\NormalTok{olderversion =}\StringTok{ }
+\StringTok{  }\KeywordTok{load_from_bucket}\NormalTok{(}\StringTok{"merged_dmaqc_data.RData"}\NormalTok{,}
+                   \DataTypeTok{bucket =} \StringTok{"gs://bic_data_analysis/pass1a/pheno_dmaqc/"}\NormalTok{)}
 \NormalTok{olderversion =}\StringTok{ }\NormalTok{olderversion[[}\DecValTok{1}\NormalTok{]]}
 \KeywordTok{setdiff}\NormalTok{(}\KeywordTok{colnames}\NormalTok{(merged_dmaqc_data),}\KeywordTok{colnames}\NormalTok{(olderversion))}
 \end{Highlighting}
 \end{Shaded}
 
 \begin{verbatim}
-## character(0)
+##  [1] "acute.test.participantguid"            
+##  [2] "acute.test.siteguid"                   
+##  [3] "acute.test.formguid"                   
+##  [4] "acute.test.versionguid"                
+##  [5] "animal.familiarization.participantguid"
+##  [6] "animal.familiarization.siteguid"       
+##  [7] "animal.familiarization.formguid"       
+##  [8] "animal.familiarization.versionguid"    
+##  [9] "animal.key.participantguid"            
+## [10] "animal.key.sitename"                   
+## [11] "animal.registration.participantguid"   
+## [12] "animal.registration.siteguid"          
+## [13] "animal.registration.formguid"          
+## [14] "animal.registration.versionguid"       
+## [15] "specimen.collection.participantguid"   
+## [16] "specimen.collection.siteguid"          
+## [17] "specimen.collection.formguid"          
+## [18] "specimen.collection.versionguid"       
+## [19] "specimen.processing.formguid"          
+## [20] "specimen.processing.versionguid"       
+## [21] "specimen.processing.siteguid"          
+## [22] "specimen.processing.participantguid"   
+## [23] "specimen.processing.labelguid"         
+## [24] "specimen.processing.sampletypeguid"    
+## [25] "specimen.processing.aliquotguid"       
+## [26] "receivedcas"                           
+## [27] "receivestatuscas"                      
+## [28] "calculated.variables.time_to_freeze"
 \end{verbatim}
 
 \begin{Shaded}
@@ -1182,15 +1249,15 @@ data}\label{compare-to-the-older-version-of-the-data}
 \NormalTok{viallabels =}\StringTok{ }\KeywordTok{as.character}\NormalTok{(merged_dmaqc_data}\OperatorTok{$}\NormalTok{viallabel)}
 \KeywordTok{rownames}\NormalTok{(merged_dmaqc_data) =}\StringTok{ }\KeywordTok{as.character}\NormalTok{(merged_dmaqc_data}\OperatorTok{$}\NormalTok{viallabel)}
 \KeywordTok{rownames}\NormalTok{(olderversion) =}\StringTok{ }\KeywordTok{as.character}\NormalTok{(olderversion}\OperatorTok{$}\NormalTok{viallabel)}
-\NormalTok{diffs =}\StringTok{ }\NormalTok{olderversion[viallabels,shared_cols] }\OperatorTok{==}\StringTok{ }\NormalTok{merged_dmaqc_data[viallabels,shared_cols]}
+\NormalTok{diffs =}\StringTok{ }\NormalTok{olderversion[viallabels,shared_cols] }\OperatorTok{!=}\StringTok{ }\NormalTok{merged_dmaqc_data[viallabels,shared_cols]}
 \KeywordTok{table}\NormalTok{(diffs)}
 \end{Highlighting}
 \end{Shaded}
 
 \begin{verbatim}
 ## diffs
-##   TRUE 
-## 888841
+##  FALSE   TRUE 
+## 887495   1346
 \end{verbatim}
 
 
