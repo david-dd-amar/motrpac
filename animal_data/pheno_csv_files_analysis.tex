@@ -144,48 +144,9 @@
 \NormalTok{dmaqc_dict_dir =}\StringTok{ }\KeywordTok{paste}\NormalTok{(local_path,}\StringTok{"1-Data_Dictionary/"}\NormalTok{,}\DataTypeTok{sep=}\StringTok{""}\NormalTok{)}
 \KeywordTok{download_bucket_files_to_local_dir}\NormalTok{(}\DataTypeTok{bucket =} \KeywordTok{paste}\NormalTok{(bucket,}\StringTok{"3-Data_Sets/"}\NormalTok{,}\DataTypeTok{sep=}\StringTok{""}\NormalTok{),}
                                    \DataTypeTok{local_path =}\NormalTok{ dmaqc_data_dir)}
-\end{Highlighting}
-\end{Shaded}
-
-\begin{verbatim}
-## $downloaded_files
-## [1] "/Users/David/Desktop/MoTrPAC/data/pass_1a/dmaqc_pheno/release_10032019/3-Data_Sets//DMAQC_Transfer_PASS_1A.6M_1.00_DS_MoTrPAC.PASS_Animal.Acute.Test.csv"          
-## [2] "/Users/David/Desktop/MoTrPAC/data/pass_1a/dmaqc_pheno/release_10032019/3-Data_Sets//DMAQC_Transfer_PASS_1A.6M_1.00_DS_MoTrPAC.PASS_Animal.BICLabelData.csv"        
-## [3] "/Users/David/Desktop/MoTrPAC/data/pass_1a/dmaqc_pheno/release_10032019/3-Data_Sets//DMAQC_Transfer_PASS_1A.6M_1.00_DS_MoTrPAC.PASS_Animal.Calculated.Variables.csv"
-## [4] "/Users/David/Desktop/MoTrPAC/data/pass_1a/dmaqc_pheno/release_10032019/3-Data_Sets//DMAQC_Transfer_PASS_1A.6M_1.00_DS_MoTrPAC.PASS_Animal.Familiarization.csv"     
-## [5] "/Users/David/Desktop/MoTrPAC/data/pass_1a/dmaqc_pheno/release_10032019/3-Data_Sets//DMAQC_Transfer_PASS_1A.6M_1.00_DS_MoTrPAC.PASS_Animal.Key.csv"                 
-## [6] "/Users/David/Desktop/MoTrPAC/data/pass_1a/dmaqc_pheno/release_10032019/3-Data_Sets//DMAQC_Transfer_PASS_1A.6M_1.00_DS_MoTrPAC.PASS_Animal.Registration.csv"        
-## [7] "/Users/David/Desktop/MoTrPAC/data/pass_1a/dmaqc_pheno/release_10032019/3-Data_Sets//DMAQC_Transfer_PASS_1A.6M_1.00_DS_MoTrPAC.PASS_Animal.Specimen.Collection.csv" 
-## [8] "/Users/David/Desktop/MoTrPAC/data/pass_1a/dmaqc_pheno/release_10032019/3-Data_Sets//DMAQC_Transfer_PASS_1A.6M_1.00_DS_MoTrPAC.PASS_Animal.Specimen.Processing.csv" 
-## 
-## $local_path
-## [1] "/Users/David/Desktop/MoTrPAC/data/pass_1a/dmaqc_pheno/release_10032019/3-Data_Sets/"
-\end{verbatim}
-
-\begin{Shaded}
-\begin{Highlighting}[]
 \KeywordTok{download_bucket_files_to_local_dir}\NormalTok{(}\DataTypeTok{bucket =} \KeywordTok{paste}\NormalTok{(bucket,}\StringTok{"1-Data_Dictionary/"}\NormalTok{,}\DataTypeTok{sep=}\StringTok{""}\NormalTok{),}
                                    \DataTypeTok{local_path =}\NormalTok{ dmaqc_dict_dir)}
-\end{Highlighting}
-\end{Shaded}
 
-\begin{verbatim}
-## $downloaded_files
-## [1] "/Users/David/Desktop/MoTrPAC/data/pass_1a/dmaqc_pheno/release_10032019/1-Data_Dictionary//DMAQC_Transfer_PASS_1A.6M_1.00_DD_MoTrPAC.PASS_Animal.Acute.Test.csv"          
-## [2] "/Users/David/Desktop/MoTrPAC/data/pass_1a/dmaqc_pheno/release_10032019/1-Data_Dictionary//DMAQC_Transfer_PASS_1A.6M_1.00_DD_MoTrPAC.PASS_Animal.BICLabelData.csv"        
-## [3] "/Users/David/Desktop/MoTrPAC/data/pass_1a/dmaqc_pheno/release_10032019/1-Data_Dictionary//DMAQC_Transfer_PASS_1A.6M_1.00_DD_MoTrPAC.PASS_Animal.Calculated.Variables.csv"
-## [4] "/Users/David/Desktop/MoTrPAC/data/pass_1a/dmaqc_pheno/release_10032019/1-Data_Dictionary//DMAQC_Transfer_PASS_1A.6M_1.00_DD_MoTrPAC.PASS_Animal.Familiarization.csv"     
-## [5] "/Users/David/Desktop/MoTrPAC/data/pass_1a/dmaqc_pheno/release_10032019/1-Data_Dictionary//DMAQC_Transfer_PASS_1A.6M_1.00_DD_MoTrPAC.PASS_Animal.Key.csv"                 
-## [6] "/Users/David/Desktop/MoTrPAC/data/pass_1a/dmaqc_pheno/release_10032019/1-Data_Dictionary//DMAQC_Transfer_PASS_1A.6M_1.00_DD_MoTrPAC.PASS_Animal.Registration.csv"        
-## [7] "/Users/David/Desktop/MoTrPAC/data/pass_1a/dmaqc_pheno/release_10032019/1-Data_Dictionary//DMAQC_Transfer_PASS_1A.6M_1.00_DD_MoTrPAC.PASS_Animal.Specimen.Collection.csv" 
-## [8] "/Users/David/Desktop/MoTrPAC/data/pass_1a/dmaqc_pheno/release_10032019/1-Data_Dictionary//DMAQC_Transfer_PASS_1A.6M_1.00_DD_MoTrPAC.PASS_Animal.Specimen.Processing.csv" 
-## 
-## $local_path
-## [1] "/Users/David/Desktop/MoTrPAC/data/pass_1a/dmaqc_pheno/release_10032019/1-Data_Dictionary/"
-\end{verbatim}
-
-\begin{Shaded}
-\begin{Highlighting}[]
 \NormalTok{all_csvs =}\StringTok{ }\KeywordTok{list.files}\NormalTok{(dmaqc_data_dir,}\DataTypeTok{full.names =}\NormalTok{ T) }\CommentTok{# get all files in dir}
 \NormalTok{all_csvs =}\StringTok{ }\NormalTok{all_csvs[}\KeywordTok{grepl}\NormalTok{(}\StringTok{".csv$"}\NormalTok{,all_csvs)] }\CommentTok{# make sure we take csv only}
 \CommentTok{# read all files}
@@ -932,6 +893,17 @@ time point of each animal in the exercise group.
 \NormalTok{merged_dmaqc_data}\OperatorTok{$}\NormalTok{acute.test.howlongshock_seconds =}\StringTok{ }\KeywordTok{sapply}\NormalTok{(}
 \NormalTok{  merged_dmaqc_data}\OperatorTok{$}\NormalTok{acute.test.howlongshock,}
 \NormalTok{  parse_shocktime)}
+
+\CommentTok{# Add the parsed shock time into the dictionary}
+\NormalTok{merged_column_dictionary =}\StringTok{ }\KeywordTok{rbind}\NormalTok{(merged_column_dictionary,}
+  \KeywordTok{c}\NormalTok{(}\StringTok{"acute.test.howlongshock_seconds"}\NormalTok{,}
+    \StringTok{" how much time was spent on the shocker grid in seconds"}\NormalTok{,}
+    \StringTok{"numeric"}\NormalTok{,}\StringTok{""}\NormalTok{,}\StringTok{""}\NormalTok{,}
+    \KeywordTok{min}\NormalTok{(merged_dmaqc_data}\OperatorTok{$}\NormalTok{acute.test.howlongshock_second,}\DataTypeTok{na.rm=}\NormalTok{T),}
+    \KeywordTok{max}\NormalTok{(merged_dmaqc_data}\OperatorTok{$}\NormalTok{acute.test.howlongshock_second,}\DataTypeTok{na.rm=}\NormalTok{T),}
+    \StringTok{"calculated.variables"}\NormalTok{)}
+\NormalTok{)}
+
 \NormalTok{inds =}\StringTok{ }\OperatorTok{!}\KeywordTok{is.na}\NormalTok{(merged_dmaqc_data}\OperatorTok{$}\NormalTok{acute.test.howlongshock_seconds)}
 \NormalTok{df =}\StringTok{ }\NormalTok{merged_dmaqc_data[inds,}\KeywordTok{c}\NormalTok{(}\StringTok{"bid"}\NormalTok{,}\StringTok{"acute.test.distance"}\NormalTok{,}
                               \StringTok{"acute.test.howlongshock_seconds"}\NormalTok{,}
@@ -1258,6 +1230,18 @@ data}\label{compare-to-the-older-version-of-the-data}
 ## diffs
 ##  FALSE   TRUE 
 ## 887495   1346
+\end{verbatim}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\NormalTok{diff_by_col =}\StringTok{ }\KeywordTok{colSums}\NormalTok{(diffs,}\DataTypeTok{na.rm =}\NormalTok{ T)}
+\NormalTok{diff_by_col[diff_by_col}\OperatorTok{>}\DecValTok{0}\NormalTok{]}
+\end{Highlighting}
+\end{Shaded}
+
+\begin{verbatim}
+## calculated.variables.deathtime_after_acute 
+##                                       1346
 \end{verbatim}
 
 
