@@ -6,235 +6,206 @@ output:
   html_notebook: default
 ---
 
-In this document we present the joint analysis of the different metabolomics datasets submitted to BIC (currently, as of June 2019). 
-
-For a literature scan on normalization methods see our document: https://docs.google.com/document/d/1M8p5vU9N7JZcRercQoiz02yPCRTjAitB7-t22r2belo/edit?usp=sharing.
-Briefly, metabolomics studies usually use quality control samples throughout the project for assessing the batches, and internal standards (spike-in metabolites) for normalization. Notable methods here are RUV and CCMN. Downstream normalization is used to either deal with the heteroscedasticity of the metabolite-level data (e.g., Pareto normalization) or to account for sample-to-sample variation (MSTUS, Quantile, Median, etc.). Some methods rely on reference samples (pools or qc samples). Loess-based methods that compare each sample to the reference can be used for this normalization. 
+In this document we present the joint analysis of the PASS1A metabolomics datasets.
 
 # Load all datasets
 
-Load the parsed meta-data (from the cloud), required for all analyses presented here.
+Load the data from the cloud, including: phenotypic data, metabolomic datasets, and metabolomics dictionary.
 
 ```{r,results='hide',message=FALSE,warning=FALSE}
-system(paste("~/google-cloud-sdk/bin/gsutil",
-  "cp gs://bic_data_analysis/pass1a/pheno_dmaqc/merged_dmaqc_data.RData",
-  "."))
-load("merged_dmaqc_data.RData")
-system("rm merged_dmaqc_data.RData")
-rownames(merged_dmaqc_data) = as.character(merged_dmaqc_data$viallabel)
+source("~/Desktop/repos/motrpac-bic-norm-qc/tools/supervised_normalization_functions.R")
+source("~/Desktop/repos/motrpac-bic-norm-qc/tools/unsupervised_normalization_functions.R")
+source("~/Desktop/repos/motrpac-bic-norm-qc/tools/gcp_functions.R")
+source("~/Desktop/repos/motrpac-bic-norm-qc/tools/association_analysis_methods.R")
+source("~/Desktop/repos/motrpac-bic-norm-qc/tools/data_aux_functions.R")
+source("~/Desktop/repos/motrpac/tools/prediction_ml_tools.R")
+library(randomForest) # for classification tests
 
-# load required libraries
-library(ggplot2);library(reshape2);library(gridExtra)
-library(corrplot)
-
-# load our helper functions
-source("~/Desktop/repos/motrpac/tools/preprocessing_helper_functions.R")
-source("~/Desktop/repos/motrpac/tools/gcp_functions.R")
-source("~/Desktop/repos/motrpac-bic-norm-qc/norm_pipelines/supervised_normalization_functions.R")
-source("~/Desktop/repos/motrpac-bic-norm-qc/norm_pipelines/unsupervised_normalization_functions.R")
-
-merged_dmaqc_data =  load_from_bucket("merged_dmaqc_data.RData",
+# Load the dmaqc data
+merged_dmaqc_data =  load_from_bucket("merged_dmaqc_data2019-10-15.RData",
     "gs://bic_data_analysis/pass1a/pheno_dmaqc/",F)
 merged_dmaqc_data = merged_dmaqc_data[[1]]
-rownames(merged_dmaqc_data) = as.character(merged_dmaqc_data$viallabel)
+rownames(merged_dmaqc_data) = as.character(merged_dmaqc_data$vial_label)
+# define the tissue variable
 merged_dmaqc_data$tissue = merged_dmaqc_data$sampletypedescription
+# define the time to freeze variable
+merged_dmaqc_data$time_to_freeze = merged_dmaqc_data$calculated.variables.time_death_to_collect_min + 
+  merged_dmaqc_data$calculated.variables.time_collect_to_freeze_min
+
+# Load our parsed metabolomics datasets
+metabolomics_parsed_datasets = load_from_bucket(
+  file = "metabolomics_parsed_datasets_ER_PHASE1A-06.RData",
+  bucket = "gs://bic_data_analysis/pass1a/metabolomics/")[[1]]
+
+# Read the dictionary
+dict_bucket = 
+  "gs://motrpac-external-release1-results/metabolomics_targeted/motrpac_metabolomics_data_dictionary-v1.1.5.txt"
+dict_download = get_single_file_from_bucket_to_local_dir(dict_bucket)
+metabolomics_dict = fread(dict_download[[1]],data.table = F)
+
 ```
 
-Load the data and separate by tissue. Define a dataset as a combination of site, tissue, and platform.
+Define the variables to be adjusted for:
+```{r}
+biospec_cols = c(
+  "acute.test.distance",
+  "calculated.variables.time_to_freeze",
+  "calculated.variables.edta_coll_time",
+  "bid" # required for matching datasets
+  )
+differential_analysis_cols = c(
+  "animal.registration.sex",
+  "animal.key.timepoint",
+  "animal.key.is_control"
+)
+```
 
-```{r,results='hide',message=FALSE,warning=FALSE,eval=FALSE}
-metabolomics_data_bucket = "gs://bic_data_analysis/pass1a/metabolomics/"
-rdata_files = get_files_in_bucket(metabolomics_data_bucket)
-rdata_files = rdata_files[grepl(".rdata$",rdata_files,ignore.case = T)]
-site_names = c("duke","mayo","broad","gtech","umichigan")
-for(site in site_names){
-  inds = grepl(site,rdata_files,ignore.case = T)
-  names(rdata_files)[inds] = site
-}
-rdata_files = gsub(metabolomics_data_bucket,"",rdata_files)
-rdata_objects = sapply(rdata_files,load_from_bucket,
-                       bucket=metabolomics_data_bucket,delete=T)
-sapply(rdata_objects,names)
-newl = list()
-for(nn in names(rdata_objects)){
-  for(nn2 in names(rdata_objects[[nn]])){
-    newl[[nn2]] = rdata_objects[[nn]][[nn2]]
-  }
-}
-rdata_objects = newl
+# Data filtering and normalization
 
-# Separate the datasets by site, tissue, and type (metadata or not)
-raw_abundance_datasets =  rdata_objects[grepl("comp",names(rdata_objects))]
-names(raw_abundance_datasets) = gsub("_compounds","",names(raw_abundance_datasets))
-sample_metadata = rdata_objects[grepl("sampleme",names(rdata_objects))]
-names(sample_metadata) = gsub("_samplemeta","",names(sample_metadata))
-get_tissue_from_dataset_name<-function(x){return(strsplit(x,split="_")[[1]][2])}
-raw_abundance_datasets_tissues = 
-  sapply(names(raw_abundance_datasets),get_tissue_from_dataset_name)
-get_site_from_dataset_name<-function(x){return(strsplit(x,split="_")[[1]][1])}
-raw_abundance_datasets_sites = 
-  sapply(names(raw_abundance_datasets),get_site_from_dataset_name)
+We go over each dataset. We merged the named and unnamed subparts of the untargeted datasets, then log the data (values are raw intensities) and remove rows with $>20\%$ missing values.
 
-
-# Create datasets for the comparison: remove controls, normalize, fold changes
-# this is a named list of dataset
-# each name has: site,tissue
-# each entry has abundance data, row annot data, control data, sample metadata (optional)
-# @assumption: last row annotation column in untargeted data is "RT"
-# @assumption: last row annotation column in targeted is "SITE_COMP_NAME"
-metabolomics_parsed_datasets = list()
-for(dataset in names(raw_abundance_datasets)){
-  site = raw_abundance_datasets_sites[[dataset]]
-  tissue_name = raw_abundance_datasets_tissues[[dataset]]
-  is_untargeted = is.element(site,set = c("broad","gtech","umichigan"))
-  d = raw_abundance_datasets[[dataset]]
-  sample_meta = sample_metadata[[dataset]]
-  print(paste(dataset,nrow(sample_meta)))
-  if(is_untargeted){
-    lastind = which(names(d)=="RT")
+```{r,out.height='50%',out.width='50%',message=T,warning=FALSE}
+metabolomics_processed_datasets = c()
+# set a binary vector indicating with entries to skip
+metabolomics_raw_datasets_skip = rep(F,length(metabolomics_parsed_datasets))
+names(metabolomics_raw_datasets_skip) = names(metabolomics_parsed_datasets)
+untargeted_merge_errors = list()
+for(currname in names(metabolomics_parsed_datasets)){
+  
+  if(metabolomics_raw_datasets_skip[currname]){next}
+  
+  arr = strsplit(currname,split=",")[[1]]
+  arr = arr[-length(arr)]
+  name1 = paste(paste(arr,collapse=","),"named",sep=",")
+  name2 = paste(paste(arr,collapse=","),"unnamed",sep=",")
+  
+  # If dataset is untargeted, merge named and unnamed, update the dataset
+  # currname. Skip the dataset if the merge fails, but store and print the errror.
+  if(name2 %in% names(metabolomics_parsed_datasets)){
+    d1 = metabolomics_parsed_datasets[[name1]]
+    d2 = metabolomics_parsed_datasets[[name2]]
+    newd = NULL
+    tryCatch({
+      newd = merge_named_and_unnamed_metabolomics_datasets(d1,d2,strict = F)
+      }, error = function(e) {
+        print("##########################")
+        print(currname)
+        print(e)
+        print("##########################")
+        untargeted_merge_errors[[currname]] = e
+    })
+    
+    currname = paste(paste(arr,collapse=","),"untargeted",sep=",")
+    metabolomics_raw_datasets_skip[name1] = T
+    metabolomics_raw_datasets_skip[name2] = T
+    if(is.null(newd)){next}
   }
   else{
-    lastind = which(names(d)=="SITE_COMP_NAME")
+    metabolomics_raw_datasets_skip[currname] = T
+    newd = metabolomics_parsed_datasets[[currname]]
   }
-  row_annot = d[,1:lastind];d = d[-c(1:lastind)]
   
-  print(table(sapply(d,class)))
-  d = as.matrix(d) # transform to matrix
-  mode(d) = "numeric" # required as some datasets are given in character
-  d[is.na(d)] = 0
-  d = log(d+1,base=2)
-    
-  control_columns = !is.element(colnames(d),set=merged_dmaqc_data$viallabel)
-  control_data = d[,control_columns]
-  d  = d[,!control_columns]
-    
-  print(paste("excluded rows with zero variance",sum(apply(d,1,sd)==0)))
-  rowinds = apply(d,1,sd)>0
-  d = d[rowinds,]
-  row_annot = row_annot[rowinds,]
-  control_data=control_data[rowinds,]
+  curr_data  = newd$sample_data
+  curr_data2 = recast_numeric_data_frame(curr_data)
+  curr_data_mat = as.matrix(curr_data2)
+
+  # log the data (in required)
+  if(max(curr_data_mat,na.rm = T)>100){
+    curr_data = log(curr_data_mat+1,base=2)
+  }
   
-  obj_name = paste(site,tissue_name,sep="_")
-  obj = list(sample_data=d,control_data=control_data,
-             row_annot=row_annot,sample_meta=sample_meta,
-             is_untargeted = is_untargeted)
-  metabolomics_parsed_datasets[[dataset]] = obj
+  curr_meta = merged_dmaqc_data[colnames(curr_data),
+        union(biospec_cols,differential_analysis_cols)]
+  # remove metadata variables with too many NAs
+  na_counts = apply(is.na(curr_meta),2,sum)
+  curr_meta = curr_meta[,na_counts/nrow(curr_meta) < 0.1]
+  
+  # organize the dataset
+  curr_data = curr_data[,rownames(curr_meta)]
+  # remove zero variance rows or rows with many NAs
+  rows_to_rem = !(apply(curr_data,1,sd,na.rm=T)>0)
+  percent_na = rowSums(is.na(curr_data)) / ncol(curr_data)
+  print(paste(currname,"number of NA cells"))
+  print(sum(is.na(curr_data)))
+  rows_to_rem = rows_to_rem | percent_na > 0.2
+  curr_data = curr_data[!rows_to_rem,]
+  # impute - use capture.output to avoid prints
+  capture.output(
+    {curr_data_imp = impute::impute.knn(as.matrix(curr_data))$data}
+    ,file=NULL)
+  curr_data_rnames = newd$data_raw_rownames[!rows_to_rem]
+  # update the data object
+  metabolomics_processed_datasets[[currname]] = newd
+  metabolomics_processed_datasets[[currname]]$sample_data = curr_data_imp
+  metabolomics_processed_datasets[[currname]]$data_raw_rownames = curr_data_rnames
+  metabolomics_processed_datasets[[currname]]$sample_meta_parsed = curr_meta
 }
 
-save_to_bucket(metabolomics_parsed_datasets,
-               file = "metabolomics_parsed_datasets.RData",
-               bucket = "gs://bic_data_analysis/pass1a/metabolomics/")
+save_to_bucket(metabolomics_processed_datasets,
+               file="metabolomics_processed_datasets10202019.RData",
+               bucket = "https://console.cloud.google.com/storage/browser/bic_data_analysis/pass1a/metabolomics")
 ```
+
 
 Alternatively load the result from the bucket to save time:
 ```{r}
-metabolomics_parsed_datasets = load_from_bucket(
-  file = "metabolomics_parsed_datasets.RData",
-  bucket = "gs://bic_data_analysis/pass1a/metabolomics/")[[1]]
+# TODO...
 ```
 
-# Dataset qc and normalization
+# Dataset pairwise comparison as a prediction task
 
-## Look at the reference correlations
-
-```{r}
-ref_corrs = list()
-for(nn in names(metabolomics_parsed_datasets)){
-  dataset = metabolomics_parsed_datasets[[nn]]
-  x = dataset$control_data
-  xmeta = dataset$sample_meta
-  cnames = colnames(x)
-  ctypes = gsub("\\d",replacement = "",cnames)
-  ctypes = gsub("_",replacement = "",ctypes)
-  names(ctypes) = cnames
-  xcorrs = cor(x,method="spearman")
-  ctype2cors = list()
-  for(ctype in ctypes){
-    inds = names(ctypes)[ctypes==ctype]
-    ctype2cors[[ctype]] = xcorrs[inds,inds]
-  }
-  ref_corrs[[nn]] = lapply(ctype2cors,function(x)x[lower.tri(x)])
-}
-
-# Create a report from the control data
-ref_cor_sum_report = c()
-inds_to_plot = names(which(sapply(ref_corrs,length)>0))
-for(dataset_name in inds_to_plot){
-  currvals = ref_corrs[[dataset_name]]
-  corrs_dists = cbind(
-    sapply(currvals,mean,na.rm=T),
-    sapply(currvals,sd,na.rm=T),
-    sapply(currvals,median,na.rm=T)
-  )
-  colnames(corrs_dists) = c("mean","sd","median")
-  corrs_dists = data.frame(corrs_dists)
-  corrs_dists = cbind(rownames(corrs_dists),corrs_dists)
-  corrs_dists = cbind(dataset_name,corrs_dists)
-  ref_cor_sum_report = rbind(ref_cor_sum_report,corrs_dists)
-}
-rownames(ref_cor_sum_report) = NULL
-write.table(ref_cor_sum_report,sep="\t",quote = F)
-rownames(ref_cor_sum_report) = paste(ref_cor_sum_report[,1],
-       ref_cor_sum_report[,2],sep=":")
-ref_cor_sum_report = as.matrix(ref_cor_sum_report[,-c(1:2)])
-ref_cor_sum_report = ref_cor_sum_report[!is.na(ref_cor_sum_report[,1]),]
-write.table(rownames(ref_cor_sum_report)[ref_cor_sum_report[,1]<0.8],
-            row.names = F,quote=F)
-
-inds_to_plot
-nn = "broad_liver_pos"
-par(mar=c(10,4,4,4))
-boxplot(ref_corrs[[nn]],main=nn,las=2,ylim=c(0,1))
-nn = "gtech_liver_pos"
-par(mar=c(10,4,4,4))
-boxplot(ref_corrs[[nn]],main=nn,las=2,ylim=c(0,1))
-
-
-# # MA plots: differential abundance examination
-# colnames(x)
-# x = run_quantile_normalization(x)
-# library(edgeR)
-# ma_plot(x[,24],x[,25])
-# cv_mean_plot(x)
-```
-
-# Dataset pairwise comparisons
-
-## As a prediction task
+Use 10-fold cross validation for analysis within tissues.
 
 ```{r,fig.align="center",out.height='60%',out.width='60%',eval=FALSE}
-nfolds = 5
+nfolds = 10
 prediction_analysis_results = list()
 for(nn1 in names(metabolomics_parsed_datasets)){
   print(nn1)
+  nn1_tissue = strsplit(nn1,split=",")[[1]][1]
+  nn1_tissue = gsub("_powder","",nn1_tissue)
   for(nn2 in names(metabolomics_parsed_datasets)){
-    print(nn2)
+    nn2_tissue = strsplit(nn2,split=",")[[1]][1]
+    nn2_tissue = gsub("_powder","",nn2_tissue)
+    if(nn1_tissue!=nn2_tissue){next}
+    print(paste("training set:",nn2))
+    print(paste("test set:",nn1))
+    
+    # get the data, merge samples by bid if necessary
     y = metabolomics_parsed_datasets[[nn1]]$sample_data
     x = metabolomics_parsed_datasets[[nn2]]$sample_data
-    if(is.null(rownames(x))){
-      rownames(x) = metabolomics_parsed_datasets[[nn2]]$row_annot[,3]
-    }    
-    if(is.null(rownames(y))){
-      rownames(y) = metabolomics_parsed_datasets[[nn1]]$row_annot[,3]
-    }
-    
-    y_vials = colnames(y)
+    y_meta = unique(metabolomics_parsed_datasets[[nn1]]$sample_meta_parsed)
+    # # remove metadata variables with too many NAs
+    # na_counts = apply(is.na(y_meta),2,sum)
+    # y_meta = y_meta[,na_counts/nrow(y_meta) == 0]
+    rownames(y_meta) = y_meta$bid
     bid_y = merged_dmaqc_data[colnames(y),"bid"]
-    bid_x = merged_dmaqc_data[colnames(x),"bid"]
-    table(is.element(bid_y,set=bid_x))
-    colnames(x) = bid_x
-    colnames(y) = bid_y
-    x = x[,colnames(y)] # make x in the same order as y
-    x = t(as.matrix(x))
-    y = t(as.matrix(y))
+    bid_x = merged_dmaqc_data[colnames(x),"bid"]    
+    # merge samples from the same BID
+    if(length(unique(bid_x))!=length(bid_x)){
+      x = aggregate_repeated_samples(x,bid_x)
+    }
+    else{
+      colnames(x) = bid_x
+    }
+    if(length(unique(bid_y))!=length(bid_y)){
+      y = aggregate_repeated_samples(y,bid_y)
+    }else{
+      colnames(y) = bid_y
+    }
     
     if(ncol(y)>1000){next}
     
-    cov_cols = c("animal.registration.sex",
-             "acute.test.weight",
-             "acute.test.distance",
-             "animal.key.timepoint")
-    covs = merged_dmaqc_data[y_vials,cov_cols]
+    cov_cols = intersect(colnames(y_meta),
+                          setdiff(biospec_cols,"bid"))
+    covs = as.matrix(y_meta[colnames(y),cov_cols])
+    
+    # regress the covariates out - simple linear analysis
+    y = lm_regress_out_matrix(t(y),covs)
+    
+    # Prepare the input for the ML part
+    shared_bids = as.character(intersect(rownames(y),colnames(x)))
+    x = t(as.matrix(x[,shared_bids]))
+    y = as.matrix(y[shared_bids,])
     
     # Run the regressions
     folds = sample(rep(1:nfolds,(1+nrow(x)/nfolds)))[1:nrow(x)]
@@ -352,7 +323,7 @@ for(nn in names(cov_prediction_analysis_results)){
 # Some boxplots
 pred_targets = sapply(names(prediction_analysis_results),function(x)
   strsplit(x,split = ";")[[1]][1])
-target = "duke_liver_tar"
+target = "liver_powder,metab_t_tca,named" 
 curr_res = unique(results_metrics[pred_targets == target,])
 rownames(curr_res) = gsub(target,"",rownames(curr_res))
 rownames(curr_res) = gsub(";","",rownames(curr_res))
@@ -378,18 +349,18 @@ text(plt, par("usr")[3], labels = rownames(curr_res),
      srt = 45, adj = c(1.1,1.1), xpd = T, cex=0.6)
 abline(h=cov_baseline[6],lty=2,lwd=2,col="red")
 
-preds = c();real=c()
-for(j in 1:nfolds){
-  tr_x = x[folds!=j,]
-  tr_y = y[folds!=j,]
-  te_x = x[folds==j,]
-  te_y = y[folds==j,]
-  model = MTL_wrapper(tr_x,tr_y,type="Regression", Regularization="L21")
-  te_preds = predict(model,te_x)
-  real = rbind(real,te_y)
-  preds = rbind(preds,te_preds)
-}
-diag(cor(preds,real))
+# preds = c();real=c()
+# for(j in 1:nfolds){
+#   tr_x = x[folds!=j,]
+#   tr_y = y[folds!=j,]
+#   te_x = x[folds==j,]
+#   te_y = y[folds==j,]
+#   model = MTL_wrapper(tr_x,tr_y,type="Regression", Regularization="L21")
+#   te_preds = predict(model,te_x)
+#   real = rbind(real,te_y)
+#   preds = rbind(preds,te_preds)
+# }
+# diag(cor(preds,real))
 
 # Using PLS regression
 # library(pls)
