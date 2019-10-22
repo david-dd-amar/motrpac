@@ -143,13 +143,89 @@ for(currname in names(metabolomics_parsed_datasets)){
 
 save_to_bucket(metabolomics_processed_datasets,
                file="metabolomics_processed_datasets10202019.RData",
-               bucket = "https://console.cloud.google.com/storage/browser/bic_data_analysis/pass1a/metabolomics")
+               bucket = "gs://bic_data_analysis/pass1a/metabolomics/")
+
 ```
 
 
 Alternatively load the result from the bucket to save time:
 ```{r}
-# TODO...
+metabolomics_processed_datasets = load_from_bucket(
+  file="metabolomics_processed_datasets10202019.RData",
+  bucket = "gs://bic_data_analysis/pass1a/metabolomics/"
+)[[1]]
+```
+
+# Analysis of specific metabolites
+
+Compare overlaps, effect sizes, and correlations within tissues. Compare targeted-untargeted pairs only.
+
+```{r,out.height='50%',out.width='50%',message=T,warning=FALSE}
+
+# helper function to transform a metabolomics matrix
+# to that of its motrpac compound ids
+extract_metab_data_from_row_annot<-function(x,row_annot_x){
+  # get the coloumn that has the row names
+  int_sizes = apply(row_annot_x,2,function(x,y)length(intersect(x,y)),y=rownames(x))
+  ind = which(int_sizes==max(int_sizes,na.rm = T))
+  row_annot_x = row_annot_x[is.element(row_annot_x[,ind],set=rownames(x)),]
+  rownames(row_annot_x) = row_annot_x[,ind]
+  shared = intersect(rownames(row_annot_x),rownames(x))
+  x = x[shared,]
+  row_annot_x = row_annot_x[shared,]
+  rownames(x) = row_annot_x$motrpac_comp_name
+  return(x)
+}
+
+for(nn1 in names(metabolomics_processed_datasets)){
+  nn1_tissue = strsplit(nn1,split=",")[[1]][1]
+  nn1_tissue = gsub("_powder","",nn1_tissue)
+  if(grepl("untargeted",nn1)){next}
+  for(nn2 in names(metabolomics_processed_datasets)){
+    if(nn2 == nn1){next}
+    if(grepl(",named",nn2)){next}
+    nn2_tissue = strsplit(nn2,split=",")[[1]][1]
+    nn2_tissue = gsub("_powder","",nn2_tissue)
+    if(nn1_tissue!=nn2_tissue){next}
+    print(paste("dataset1:",nn1))
+    print(paste("dataset2:",nn2))
+    # get the numeric dataset
+    x = metabolomics_processed_datasets[[nn1]]$sample_data
+    y = metabolomics_processed_datasets[[nn2]]$sample_data
+    row_annot_x = metabolomics_processed_datasets[[nn1]]$row_annot
+    row_annot_y = metabolomics_processed_datasets[[nn2]]$row_annot
+    # transform metabolite names to the motrpac comp name
+    x = extract_metab_data_from_row_annot(x,row_annot_x)
+    y = extract_metab_data_from_row_annot(y,row_annot_y)
+    # align the sample sets
+    bid_y = merged_dmaqc_data[colnames(y),"bid"]
+    bid_x = merged_dmaqc_data[colnames(x),"bid"]    
+    # step 1: merge samples from the same BID
+    if(length(unique(bid_x))!=length(bid_x)){
+      x = aggregate_repeated_samples(x,bid_x)
+    }
+    else{
+      colnames(x) = bid_x
+    }
+    if(length(unique(bid_y))!=length(bid_y)){
+      y = aggregate_repeated_samples(y,bid_y)
+    }else{
+      colnames(y) = bid_y
+    }
+    # step 2: use the shared bio ids
+    shared_bids = as.character(intersect(colnames(y),colnames(x)))
+    x = as.matrix(x[,shared_bids])
+    y = as.matrix(y[,shared_bids])
+    
+    # get the shared matebolites
+    shared_metabolites = intersect(rownames(x),rownames(y))
+    shared_metabolites = na.omit(shared_metabolites)
+    for(metabolite in shared_metabolites){
+      print(cor(x[metabolite,],y[metabolite,],method = "spearman"))
+    }
+  }
+}
+
 ```
 
 # Dataset pairwise comparison as a prediction task
@@ -159,11 +235,10 @@ Use 10-fold cross validation for analysis within tissues.
 ```{r,fig.align="center",out.height='60%',out.width='60%',eval=FALSE}
 nfolds = 10
 prediction_analysis_results = list()
-for(nn1 in names(metabolomics_parsed_datasets)){
-  print(nn1)
+for(nn1 in names(metabolomics_processed_datasets)){
   nn1_tissue = strsplit(nn1,split=",")[[1]][1]
   nn1_tissue = gsub("_powder","",nn1_tissue)
-  for(nn2 in names(metabolomics_parsed_datasets)){
+  for(nn2 in names(metabolomics_processed_datasets)){
     nn2_tissue = strsplit(nn2,split=",")[[1]][1]
     nn2_tissue = gsub("_powder","",nn2_tissue)
     if(nn1_tissue!=nn2_tissue){next}
@@ -171,9 +246,9 @@ for(nn1 in names(metabolomics_parsed_datasets)){
     print(paste("test set:",nn1))
     
     # get the data, merge samples by bid if necessary
-    y = metabolomics_parsed_datasets[[nn1]]$sample_data
-    x = metabolomics_parsed_datasets[[nn2]]$sample_data
-    y_meta = unique(metabolomics_parsed_datasets[[nn1]]$sample_meta_parsed)
+    y = metabolomics_processed_datasets[[nn1]]$sample_data
+    x = metabolomics_processed_datasets[[nn2]]$sample_data
+    y_meta = unique(metabolomics_processed_datasets[[nn1]]$sample_meta_parsed)
     # # remove metadata variables with too many NAs
     # na_counts = apply(is.na(y_meta),2,sum)
     # y_meta = y_meta[,na_counts/nrow(y_meta) == 0]
@@ -242,9 +317,9 @@ for(nn1 in names(metabolomics_parsed_datasets)){
 names(prediction_analysis_results)
 
 cov_prediction_analysis_results = list()
-for(nn1 in names(metabolomics_parsed_datasets)){
+for(nn1 in names(metabolomics_processed_datasets)){
   print(nn1)
-  y = metabolomics_parsed_datasets[[nn1]]$sample_data
+  y = metabolomics_processed_datasets[[nn1]]$sample_data
   y_vials = colnames(y)
   bid_y = merged_dmaqc_data[colnames(y),"bid"]
   colnames(y) = bid_y
@@ -558,10 +633,6 @@ compare_two_met_sites<-function(x,y,merged_dmaqc_data,samplesize=100,...){
   my = my[shared,]
   mx = as.matrix(mx);my = as.matrix(my)
   if(nrow(mx)<2){return(NA)}
-  # print("####")
-  # print(dim(mx))
-  # print("####")
-  # print(dim(my))
   if(length(shared)<=100){
     corrs = diag(cor(t(mx),t(my)))
   }
@@ -577,7 +648,6 @@ compare_two_met_sites<-function(x,y,merged_dmaqc_data,samplesize=100,...){
 
 ```
 
-# Differential abundance analysis
 
 
 
