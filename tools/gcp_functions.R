@@ -299,9 +299,9 @@ read_proteomics_datasets_from_release_bucket<-function(bucket,local_path=NULL,de
   return(proteomics_parsed_datasets)
 }
 # # test
-bucket = "gs://motrpac-internal-release1-1-results/proteomics"
-save_to_bucket(proteomics_parsed_datasets,file="proteomics_parsed_datasets.RData",
-                bucket = "gs://bic_data_analysis/pass1a/")
+# bucket = "gs://motrpac-internal-release1-1-results/proteomics"
+# save_to_bucket(proteomics_parsed_datasets,file="proteomics_parsed_datasets.RData",
+#                 bucket = "gs://bic_data_analysis/pass1a/")
 
 read_single_proteomics_dataset<-function(bucket,local_path=NULL,delete=T){
   download_bucket = download_bucket_files_to_local_dir(bucket,local_path)
@@ -344,8 +344,8 @@ read_proteomics_subdataset_by_regex<-function(downloaded_files,regex="ratio"){
   return(list(data=data,sample_meta=sample_meta,row_annot=row_annot))
 }
 # #test
-# bucket =  "gs://motrpac-internal-release1-1-results/proteomics/broad/T58/ac/results/"
-
+# bucket =  "gs://motrpac-internal-release1-1-results/proteomics/broad/T58/pr/results/"
+# res = read_single_proteomics_dataset(bucket)
 
 
 
