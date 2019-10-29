@@ -44,6 +44,7 @@ dict_download = get_single_file_from_bucket_to_local_dir(dict_bucket)
 metabolomics_dict = fread(dict_download[[1]],data.table = F)
 
 # Plot cv vs means
+library(gplots)
 d = metabolomics_parsed_datasets[["white_adipose_powder,metab_u_hilicpos,unnamed"]]
 dx = d$sample_data
 CoV<-function(x){return(sd(x,na.rm = T)/mean(x,na.rm=T))}
@@ -144,12 +145,8 @@ for(currname in names(metabolomics_parsed_datasets)){
 
   # floor the data at 0
   curr_data_mat[curr_data_mat<0] = 0
-  # log the data (in required)
-  is_logged = F
-  if(max(curr_data_mat,na.rm = T)>200){
-    curr_data = log(curr_data_mat+1,base=2)
-    is_logged = T
-  }
+  # Keep a logged version of the data
+  curr_data_log = log(curr_data_mat+1,base=2)
   
   # organize the metadata
   curr_meta = merged_dmaqc_data[colnames(curr_data),
@@ -163,6 +160,7 @@ for(currname in names(metabolomics_parsed_datasets)){
 
   # organize the dataset
   curr_data = curr_data[,rownames(curr_meta)]
+  curr_data_log = curr_data_log[,rownames(curr_meta)]
   # remove zero variance rows or rows with many NAs
   rows_to_rem = !(apply(curr_data,1,sd,na.rm=T)>0)
   percent_na = rowSums(is.na(curr_data)) / ncol(curr_data)
@@ -181,9 +179,10 @@ for(currname in names(metabolomics_parsed_datasets)){
     print(paste(row_duplications,collapse=","))
   }
   curr_data = curr_data[!rows_to_rem,]
+  curr_data_log = curr_data_log[!rows_to_rem,]
   # impute - use capture.output to avoid prints
   capture.output(
-    {curr_data_imp = impute::impute.knn(as.matrix(curr_data))$data}
+    {curr_data_imp = impute::impute.knn(as.matrix(curr_data_log))$data}
     ,file=NULL)
   curr_data_rnames = newd$data_raw_rownames[!rows_to_rem]
   rownames(curr_data_imp) = curr_data_rnames
@@ -195,10 +194,10 @@ for(currname in names(metabolomics_parsed_datasets)){
   # update the data object
   metabolomics_processed_datasets[[currname]] = newd
   metabolomics_processed_datasets[[currname]]$sample_data = curr_data_imp
+  metabolomics_processed_datasets[[currname]]$sample_data_nolog_noimp = curr_data
   metabolomics_processed_datasets[[currname]]$data_raw_rownames = curr_data_rnames
   metabolomics_processed_datasets[[currname]]$sample_meta_parsed = curr_meta
   metabolomics_processed_datasets[[currname]]$sample_data_order_adj = curr_data_imp2
-  metabolomics_processed_datasets[[currname]]$is_logged = is_logged
 }
 
 save_to_bucket(metabolomics_processed_datasets,
@@ -229,15 +228,8 @@ is_normal_test<-function(v,samp=10000){
 residual_analysis_results = list()
 for(nn1 in names(metabolomics_processed_datasets)){
   if(grepl("untargeted",nn1)){next}
-  x = metabolomics_processed_datasets[[nn1]]$sample_data_order_adj
-  if(metabolomics_processed_datasets[[nn1]]$is_logged){
-    x_log = x
-    x_unlog = 2^x
-  }
-  else{
-    x_log = log2(1+x)
-    x_unlog = x
-  }
+  x_log = metabolomics_processed_datasets[[nn1]]$sample_data
+  x_unlog = 2^x_log
   
   # take the covariates, ignore distances
   x_meta = unique(metabolomics_processed_datasets[[nn1]]$sample_meta_parsed)
@@ -251,15 +243,15 @@ for(nn1 in names(metabolomics_processed_datasets)){
       res_log = apply(
         x_log,1,
         pass1a_simple_differential_abundance,
-        tps = y_meta$animal.key.timepoint,tp=tp,
-        is_control = y_meta$animal.key.is_control,
+        tps = x_meta$animal.key.timepoint,tp=tp,
+        is_control = x_meta$animal.key.is_control,
         covs = curr_covs,return_model=T
       )
       res_unlog = apply(
         x_unlog,1,
         pass1a_simple_differential_abundance,
-        tps = y_meta$animal.key.timepoint,tp=tp,
-        is_control = y_meta$animal.key.is_control,
+        tps = x_meta$animal.key.timepoint,tp=tp,
+        is_control = x_meta$animal.key.is_control,
         covs = curr_covs,return_model=T
       )
       is_norm = cbind(
@@ -277,15 +269,22 @@ log_vs_unlog_summ_mat = sapply(residual_analysis_results,
         function(y)
           wilcox.test(y[,1],y[,2],paired = T,alternative = "g")$p.value))
 
-library(ggcorrplot)
-print(ggcorrplot(t(log_vs_unlog_summ_mat),lab=T,lab_size=2.5,hc.order = F,
-                  ) +
-        ggtitle("Logged data more normal?") +
-        theme(plot.title = element_text(hjust = 0.5,size=20)))
+num_nonnormal_log = sapply(residual_analysis_results,
+    function(x)sapply(x,
+        function(y)sum(y[,1]<0.05)))
+num_nonnormal_log = 
+  num_nonnormal_log[,order(colnames(num_nonnormal_log))]
+num_nonnormal_unlog = sapply(residual_analysis_results,
+    function(x)sapply(x,
+        function(y)sum(y[,2]<0.05)))
+num_nonnormal_unlog = 
+  num_nonnormal_unlog[,order(colnames(num_nonnormal_unlog))]
+
 library(corrplot)
+par(mar = c(5,5,5,10))
 corrplot(t(-log10(log_vs_unlog_summ_mat)),is.corr = F)
-
-
+corrplot(t(num_nonnormal_log)- t(num_nonnormal_unlog),
+         is.corr = F,tl.cex = 0.7)
 ```
 
 
@@ -312,12 +311,14 @@ extract_metab_data_from_row_annot<-function(x,row_annot_x){
 
 single_metabolite_corrs = list()
 single_metabolite_de = c()
+named2covered_shared_metabolites = list()
 for(nn1 in names(metabolomics_processed_datasets)){
   nn1_tissue = strsplit(nn1,split=",")[[1]][1]
   nn1_tissue = gsub("_powder","",nn1_tissue)
   nn1_dataset = strsplit(nn1,split=",")[[1]][2]
   if(grepl("untargeted",nn1)){next}
   single_metabolite_corrs[[nn1]] = list()
+  named2covered_shared_metabolites[[nn1]] = NULL
   for(nn2 in names(metabolomics_processed_datasets)){
     if(nn2 == nn1){next}
     if(grepl(",named",nn2)){next}
@@ -366,6 +367,10 @@ for(nn1 in names(metabolomics_processed_datasets)){
     shared_metabolites = intersect(rownames(x),rownames(y))
     shared_metabolites = na.omit(shared_metabolites)
     if(length(shared_metabolites)==0){next}
+    named2covered_shared_metabolites[[nn1]] = union(
+      named2covered_shared_metabolites[[nn1]],
+      shared_metabolites
+    )
     
     # Get statistics
     corrs = c();de_res = c()
@@ -423,7 +428,6 @@ for(nn1 in names(metabolomics_processed_datasets)){
     single_metabolite_corrs[[nn1]][[nn2]] = corrs
   }
 }
-single_metabolite_de = unique(single_metabolite_de)
 single_metabolite_de = data.frame(single_metabolite_de)
 names(single_metabolite_de) = c(
   "dataset","metabolite","tp","tissue",
@@ -439,23 +443,99 @@ for(col in names(single_metabolite_de)[1:4]){
 
 ```
 
-We now show some plots to summarize the comparison. We plot the overall average correlation between the platforms (within tissues). However, going into a single metabolite comparison in detail (again, within tissues), for each metabolite, in each time point we perform a meta-analysis of the effects and examine the significance and heterogeneity.
+We next transform the data above into tables that contain data for each combination of metabolite, time point, and tissue. These are then used for two meta-analyses: (1) a simple random effects analysis, and (2) random effects with a binary covariate indicating if a dataset is targeted or untargeted.
 
-```{r,out.height='50%',out.width='50%',message=T,warning=FALSE}
+```{r,out.height='50%',out.width='50%',message=F,warning=FALSE}
 
+rownames(single_metabolite_de) = NULL
+for(nn in names(single_metabolite_de)){
+  ndig = 5
+  if(grepl("pval",nn,ignore.case = T)){
+    ndig = 10
+  }
+  if(is.numeric(single_metabolite_de[[nn]])){
+    single_metabolite_de[[nn]] = round(single_metabolite_de[[nn]],digits = ndig)
+  }
+}
+single_metabolite_de = unique(single_metabolite_de)
+
+library(metafor)
 meta_analysis_stats = list()
 for(tissue in unique(single_metabolite_de$tissue)){
   for(tp in unique(single_metabolite_de$tp)){
     curr_subset = single_metabolite_de[
-      curr_subset$tissue==tissue & curr_subset$tp==tp,]
+      single_metabolite_de$tissue==tissue &
+        single_metabolite_de$tp==tp,]
     for(metabolite in unique(curr_subset$metabolite)){
       curr_met_data = curr_subset[
         curr_subset$metabolite==metabolite,]
+      curr_met_data$var = curr_met_data$Std^2
+      re_model1 = NULL;re_model2=NULL
+      try({re_model1 = rma.uni(curr_met_data$Est,curr_met_data$var)})
+      try({re_model2 = rma.mv(curr_met_data$Est,curr_met_data$var,
+                         mods=curr_met_data$is_targeted)})
+      meta_analysis_stats[[paste(metabolite,tissue,tp,sep=",")]] = 
+        list(curr_met_data=curr_met_data,re_model1=re_model1,
+            re_model2 = re_model2)
     }
   }
 }
 
 ```
+
+We now show some plots to summarize the comparison. We plot the overall average correlation between the platforms (within tissues). However, going into a single metabolite comparison in detail (again, within tissues), for each metabolite, in each time point we perform a meta-analysis of the effects and examine the significance and heterogeneity.
+
+```{r,out.height='50%',out.width='50%',message=F,warning=FALSE}
+# Do we have nice coverages of the named datasets?
+library(ggplot2)
+dataset2num_metabolites = sapply(metabolomics_processed_datasets, 
+                                 function(x)nrow(x$sample_data))
+named_dataset_coverage = sapply(named2covered_shared_metabolites,length)
+named_dataset_coverage = data.frame(
+  name = names(named_dataset_coverage),
+  percentage = named_dataset_coverage /
+  dataset2num_metabolites[names(named_dataset_coverage)],
+  count = named_dataset_coverage,
+  total = dataset2num_metabolites[names(named_dataset_coverage)]
+)
+# add datasets with no coverage
+all_targeted_datasets = names(metabolomics_processed_datasets)
+all_targeted_datasets = all_targeted_datasets[!grepl("untarg",all_targeted_datasets)]
+zero_coverage_datasets = setdiff(all_targeted_datasets,
+                                 named_dataset_coverage$name)
+zero_coverage_datasets = data.frame(
+  name = zero_coverage_datasets,
+  percentage = rep(0,length(zero_coverage_datasets)),
+  count = rep(0,length(zero_coverage_datasets)),
+  total = dataset2num_metabolites[zero_coverage_datasets]
+)
+named_dataset_coverage = rbind(named_dataset_coverage,
+                           zero_coverage_datasets)
+named_dataset_coverage = 
+  named_dataset_coverage[order(as.character(named_dataset_coverage$name)),]
+print(ggplot(named_dataset_coverage, aes(x=name, y=percentage)) + 
+  geom_bar(stat = "identity",width=0.2) + coord_flip() +
+  geom_text(data=named_dataset_coverage, 
+            aes(name, percentage+0.05, label=count), 
+            position = position_dodge(width=0.9),
+            size=4) + 
+  ggtitle("Named datasets: coverage by untargeted datasets"))
+
+
+# Next examine the Spearman correlations between platforms
+
+# Look at the meta-analysis results
+I2_scores = sapply(meta_analysis_stats,function(x)x$re_model1$I2)
+I2_scores = unlist(I2_scores[sapply(I2_scores,length)>0])
+hist(I2_scores)
+betas = sapply(meta_analysis_stats,function(x)x$re_model1$beta[1,1])
+betas = unlist(betas[names(I2_scores)])
+plot(betas,I2_scores)
+
+
+
+```
+
 
 # Dataset pairwise comparison as a prediction task
 
