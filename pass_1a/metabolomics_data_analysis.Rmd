@@ -32,16 +32,41 @@ merged_dmaqc_data$tissue = merged_dmaqc_data$sampletypedescription
 merged_dmaqc_data$time_to_freeze = merged_dmaqc_data$calculated.variables.time_death_to_collect_min + 
   merged_dmaqc_data$calculated.variables.time_collect_to_freeze_min
 
+# col time vs. control
+# df = data.frame(
+#   bid = merged_dmaqc_data$bid,
+#   edta_col_time = merged_dmaqc_data$calculated.variables.edta_coll_time,
+#   time_to_freeze = merged_dmaqc_data$time_to_freeze,
+#   is_control = merged_dmaqc_data$animal.key.is_control,
+#   tp = merged_dmaqc_data$animal.key.timepoint,
+#   tissue = merged_dmaqc_data$specimen.processing.sampletypedescription
+# )
+# df = unique(df)
+# boxplot(edta_col_time/3600 ~ is_control,df)
+# boxplot(edta_col_time/3600 - tp ~ is_control,df)
+# wilcox.test(edta_col_time/3600 ~ is_control,df)
+
+# blood freeze times
+blood_samples = 
+  merged_dmaqc_data$specimen.processing.sampletypedescription ==
+  "EDTA Plasma"
+blood_freeze_time = 
+  as.difftime(merged_dmaqc_data$specimen.processing.t_freeze,units = "mins") -
+  as.difftime(merged_dmaqc_data$specimen.processing.t_edtaspin,units="mins")
+blood_freeze_time = as.numeric(blood_freeze_time)
+time_to_freeze = merged_dmaqc_data$time_to_freeze[blood_samples] = 
+  blood_freeze_time[blood_samples]
+
 # Load our parsed metabolomics datasets
 metabolomics_parsed_datasets = load_from_bucket(
-  file = "metabolomics_parsed_datasets_ER_PHASE1A-06.RData",
+  file = "metabolomics_parsed_datasets_pass1a_external1.RData",
   bucket = "gs://bic_data_analysis/pass1a/metabolomics/")[[1]]
 
-# Read the dictionary
-dict_bucket = 
-  "gs://motrpac-external-release1-results/metabolomics_targeted/motrpac_metabolomics_data_dictionary-v1.1.5.txt"
-dict_download = get_single_file_from_bucket_to_local_dir(dict_bucket)
-metabolomics_dict = fread(dict_download[[1]],data.table = F)
+# # Read the dictionary
+# dict_bucket = 
+#   "gs://motrpac-external-release1-results/metabolomics_targeted/motrpac_metabolomics_data_dictionary-v1.1.5.txt"
+# dict_download = get_single_file_from_bucket_to_local_dir(dict_bucket)
+# metabolomics_dict = fread(dict_download[[1]],data.table = F)
 
 # Plot cv vs means
 library(gplots)
@@ -79,7 +104,7 @@ Define the variables to be adjusted for:
 biospec_cols = c(
   "acute.test.distance",
   "calculated.variables.time_to_freeze",
-  "calculated.variables.edta_coll_time",
+  # "calculated.variables.edta_coll_time", # no need - see code above for blood
   "bid" # required for matching datasets
   )
 differential_analysis_cols = c(
@@ -92,7 +117,9 @@ pipeline_qc_cols = c("sample_order")
 
 # Data filtering and normalization
 
-We go over each dataset. We merged the named and unnamed subparts of the untargeted datasets, then: (1) log the data (values are raw intensities), (2) remove rows with $>20\%$ missing values, and (3) impute missing values.
+We go over each dataset and merge the named and unnamed subparts of the untargeted datasets. For targeted data - the release buckets we merge datasets that are from the same site and tissue.
+
+Then the preprocessing of the new datasets is as follows: (1) log the data (values are raw intensities), (2) remove rows with $>20\%$ missing values, and (3) impute missing values.
 
 Important: datasets that do not have unique metabolite names or sample ids probably had errors while parsing and are therefore ignored. Also, untargeted with failed mergning of the unnamed and named subsets (e.g., due to different sample ids) are ignored as well.
 
@@ -115,6 +142,8 @@ for(currname in names(metabolomics_parsed_datasets)){
   
   # If dataset is untargeted, merge named and unnamed, update the dataset
   # currname. Skip the dataset if the merge fails, but store and print the errror.
+  # If the dataset is targeted - go over all datasets with the same vial labels and 
+  # merge if possible. 
   if(name2 %in% names(metabolomics_parsed_datasets)){
     d1 = metabolomics_parsed_datasets[[name1]]
     d2 = metabolomics_parsed_datasets[[name2]]
@@ -135,6 +164,45 @@ for(currname in names(metabolomics_parsed_datasets)){
   else{
     metabolomics_raw_datasets_skip[currname] = T
     newd = metabolomics_parsed_datasets[[currname]]
+    curr_vials = colnames(newd$sample_data)
+    curr_site = tolower(unique(newd$sample_meta$site))
+    for(another_dataset in names(metabolomics_raw_datasets_skip)){
+      if(metabolomics_raw_datasets_skip[another_dataset]){next}
+      another_d = metabolomics_parsed_datasets[[another_dataset]]
+      another_vials = colnames(another_d$sample_data)
+      another_d_site = tolower(unique(another_d$sample_meta$site))
+      another_shared_vials = intersect(another_vials,curr_vials)
+      if(curr_site == another_d_site &&
+        length(another_shared_vials)==length(another_vials) &&
+        length(another_shared_vials)==length(curr_vials)
+      ){
+          # examine the metadata
+          curr_meta = newd$sample_meta
+          another_meta = another_d$sample_meta
+          # at this point we know that both datasets have the
+          # same samples, but not necessarily the same controls
+          # these has been partially submitted and we therefore need to
+          # intersect here
+          shared_meta_samples = intersect(rownames(curr_meta),rownames(another_meta))
+          # make sure that the vials, types, and order are te same
+          if(length(shared_meta_samples) < 1 ||
+            !all(curr_meta[shared_meta_samples,1:3]==another_meta[shared_meta_samples,1:3])){
+            next
+          }
+          try({
+            newd = merge_named_and_unnamed_metabolomics_datasets(
+              newd,another_d,strict = F) # no strict merge
+            metabolomics_raw_datasets_skip[another_dataset] = T
+          })
+      }
+    }
+    
+    # update the name of the dataset
+    # we keep track of the number of datasets from the given site, as some
+    # merges may fail
+    currname = currname = paste(arr[1],curr_site,sep=",")
+    num_currname = sum(grepl(currname,names(metabolomics_processed_datasets)))
+    currname = paste(currname,num_currname+1,sep=",")
   }
   
   print(paste("#### Analyzing data from:",currname))
@@ -201,7 +269,7 @@ for(currname in names(metabolomics_parsed_datasets)){
 }
 
 save_to_bucket(metabolomics_processed_datasets,
-               file="metabolomics_processed_datasets10202019.RData",
+               file="metabolomics_processed_datasets10282019.RData",
                bucket = "gs://bic_data_analysis/pass1a/metabolomics/")
 
 ```
@@ -210,7 +278,7 @@ save_to_bucket(metabolomics_processed_datasets,
 Alternatively load the result from the bucket to save time:
 ```{r}
 metabolomics_processed_datasets = load_from_bucket(
-  file="metabolomics_processed_datasets10202019.RData",
+  file="metabolomics_processed_datasets10282019.RData",
   bucket = "gs://bic_data_analysis/pass1a/metabolomics/"
 )[[1]]
 ```
@@ -233,7 +301,7 @@ for(nn1 in names(metabolomics_processed_datasets)){
   
   # take the covariates, ignore distances
   x_meta = unique(metabolomics_processed_datasets[[nn1]]$sample_meta_parsed)
-  curr_covs = x_meta[,intersect(colnames(x_meta),biospec_cols[-1])]
+  curr_covs = x_meta[,intersect(colnames(x_meta),biospec_cols[2])]
   curr_covs = data.frame(curr_covs,
            sex=x_meta$animal.registration.sex)
   
@@ -285,6 +353,8 @@ par(mar = c(5,5,5,10))
 corrplot(t(-log10(log_vs_unlog_summ_mat)),is.corr = F)
 corrplot(t(num_nonnormal_log)- t(num_nonnormal_unlog),
          is.corr = F,tl.cex = 0.7)
+
+
 ```
 
 
@@ -299,7 +369,7 @@ Compare overlaps, effect sizes, and correlations within tissues. Compare targete
 extract_metab_data_from_row_annot<-function(x,row_annot_x){
   # get the coloumn that has the row names
   int_sizes = apply(row_annot_x,2,function(x,y)length(intersect(x,y)),y=rownames(x))
-  ind = which(int_sizes==max(int_sizes,na.rm = T))
+  ind = which(int_sizes==max(int_sizes,na.rm = T))[1]
   row_annot_x = row_annot_x[is.element(row_annot_x[,ind],set=rownames(x)),]
   rownames(row_annot_x) = row_annot_x[,ind]
   shared = intersect(rownames(row_annot_x),rownames(x))
@@ -315,25 +385,25 @@ named2covered_shared_metabolites = list()
 for(nn1 in names(metabolomics_processed_datasets)){
   nn1_tissue = strsplit(nn1,split=",")[[1]][1]
   nn1_tissue = gsub("_powder","",nn1_tissue)
-  nn1_dataset = strsplit(nn1,split=",")[[1]][2]
   if(grepl("untargeted",nn1)){next}
   single_metabolite_corrs[[nn1]] = list()
   named2covered_shared_metabolites[[nn1]] = NULL
   for(nn2 in names(metabolomics_processed_datasets)){
     if(nn2 == nn1){next}
-    if(grepl(",named",nn2)){next}
+    if(!grepl("untargeted",nn2)){next}
     nn2_tissue = strsplit(nn2,split=",")[[1]][1]
     nn2_tissue = gsub("_powder","",nn2_tissue)
     nn2_dataset = strsplit(nn2,split=",")[[1]][2]
     if(nn1_tissue!=nn2_tissue){next}
+    print(nn2)
     # get the numeric dataset
-    x = metabolomics_processed_datasets[[nn1]]$sample_data_order_adj
+    x = metabolomics_processed_datasets[[nn1]]$sample_data
     # x = log2(x+1)
-    y = metabolomics_processed_datasets[[nn2]]$sample_data_order_adj
-    print(paste("dataset1:",nn1))
-    print(range(x))
-    print(paste("dataset2:",nn2))
-    print(range(y))
+    y = metabolomics_processed_datasets[[nn2]]$sample_data
+    # print(paste("dataset1:",nn1))
+    # print(range(x))
+    # print(paste("dataset2:",nn2))
+    # print(range(y))
     row_annot_x = metabolomics_processed_datasets[[nn1]]$row_annot
     row_annot_y = metabolomics_processed_datasets[[nn2]]$row_annot
     # transform metabolite names to the motrpac comp name
@@ -373,33 +443,40 @@ for(nn1 in names(metabolomics_processed_datasets)){
     )
     
     # Get statistics
-    corrs = c();de_res = c()
-    for(metabolite in shared_metabolites){
-      # a simple correlation over all samples
-      corrs[metabolite] = 
-        cor(x[metabolite,],y[metabolite,],method = "spearman")
+    if(length(shared_metabolites)>1){
+          corrs =cor(t(x[shared_metabolites,]),
+                t(y[shared_metabolites,]),method = "spearman")
+    }
+    else{
+          corrs = cor(x[shared_metabolites,],
+                y[shared_metabolites,],method = "spearman")
     }
     
     # take the covariates, ignore distances
-    curr_covs = y_meta[,intersect(colnames(y_meta),biospec_cols[-1])]
-    curr_covs = data.frame(curr_covs,
-                           sex=y_meta$animal.registration.sex)
+    curr_cov_cols = intersect(colnames(y_meta),biospec_cols[2])
+    curr_covs = data.frame(y_meta[,curr_cov_cols])
+    names(curr_covs) = curr_cov_cols
+    # # scale
+    # for(cov_name in names(curr_covs)){
+    #   curr_covs[[cov_name]] = scale(curr_covs[[cov_name]],center = T,scale = T)
+    # }
+    curr_covs$sex = y_meta$animal.registration.sex
     
-      # differential analysis
+    # differential analysis
     for(tp in unique(y_meta$animal.key.timepoint)){
       resx = t(apply(
         matrix(x[shared_metabolites,],nrow=length(shared_metabolites)),1,
         pass1a_simple_differential_abundance,
         tps = y_meta$animal.key.timepoint,tp=tp,
         is_control = y_meta$animal.key.is_control,
-        covs = curr_covs
+        covs = curr_covs,return_model=F
       ))
       resy = t(apply(
         matrix(y[shared_metabolites,],nrow=length(shared_metabolites)),1,
         pass1a_simple_differential_abundance,
         tps = y_meta$animal.key.timepoint,tp=tp,
         is_control = y_meta$animal.key.is_control,
-        covs = curr_covs
+        covs = curr_covs,return_model=F
       ))
       # Add dataset information, time point, tissue
       added_columns = matrix(cbind(
@@ -470,16 +547,21 @@ for(tissue in unique(single_metabolite_de$tissue)){
       curr_met_data = curr_subset[
         curr_subset$metabolite==metabolite,]
       curr_met_data$var = curr_met_data$Std^2
-      re_model1 = NULL;re_model2=NULL
+      re_model1 = NULL;re_model2=NULL;re_model_tar = NULL
       try({re_model1 = rma.uni(curr_met_data$Est,curr_met_data$var)})
       try({re_model2 = rma.mv(curr_met_data$Est,curr_met_data$var,
                          mods=curr_met_data$is_targeted)})
+      try({re_model_tar = rma.uni(
+        curr_met_data[curr_met_data$is_targeted==1,"Est"],
+        curr_met_data[curr_met_data$is_targeted==1,"var"]
+      )})
       meta_analysis_stats[[paste(metabolite,tissue,tp,sep=",")]] = 
         list(curr_met_data=curr_met_data,re_model1=re_model1,
-            re_model2 = re_model2)
+            re_model2 = re_model2,re_model_tar=re_model_tar)
     }
   }
 }
+
 
 ```
 
@@ -519,19 +601,76 @@ print(ggplot(named_dataset_coverage, aes(x=name, y=percentage)) +
             aes(name, percentage+0.05, label=count), 
             position = position_dodge(width=0.9),
             size=4) + 
-  ggtitle("Named datasets: coverage by untargeted datasets"))
+  ggtitle("Targeted dataset: coverage by untargeted"))
 
 
 # Next examine the Spearman correlations between platforms
+extract_diag_vs_non_diag<-function(corrs,func=mean,...){
+  if(length(corrs)==1){
+    return(c(same=func(corrs,...),other=NA))
+  }
+  same = func(diag(corrs),...)
+  other = func(
+    c(corrs[lower.tri(corrs,diag = F)]),...)
+  return(c(same=same,other=other))
+}
+# tar_dataset2tissue = sapply(names(single_metabolite_corrs),
+#       function(x)strsplit(x,split=",")[[1]][1])
+# tar_dataset2tissue = gsub("_powder","",tar_dataset2tissue)
+for(tar_dataset in names(single_metabolite_corrs)){
+  l = single_metabolite_corrs[[tar_dataset]]
+  if(length(l)==0){next}
+  corr_info = as.data.frame(t(sapply(l, extract_diag_vs_non_diag)))
+  corr_sd = as.data.frame(t(sapply(l, extract_diag_vs_non_diag,func=sd)))
+  rownames(corr_info) = sapply(rownames(corr_info),
+      function(x)strsplit(x,split=",")[[1]][2])
+  rownames(corr_info) = gsub("metab_u_","",rownames(corr_info))
+  rownames(corr_sd) = rownames(corr_info)
+  corr_info$dataset = rownames(corr_info)
+  corr_sd$dataset = corr_info$dataset
+  corr_info = melt(corr_info)
+  corr_sd = melt(corr_sd)
+  corr_info$sd = corr_sd$value
+  print(
+    ggplot(corr_info, aes(x=dataset, y=value, fill=variable)) +
+      geom_bar(position=position_dodge(), stat="identity", colour='black') +
+      geom_errorbar(aes(ymin=value-sd, ymax=value+sd),na.rm=T, 
+                   width=.2,position=position_dodge(.9)) +
+    ggtitle(tar_dataset) + xlab("Untargeted dataset") + ylab("Spearman") +
+      labs(fill = "Pair type") + 
+      theme(legend.position="top",legend.direction = "horizontal")
+  )
+}
 
-# Look at the meta-analysis results
+# Look at the meta-analysis results 
+# Extract some useful statistics per analysis
+pvals_tar = sapply(meta_analysis_stats,function(x)x$re_model1$pval)
+
 I2_scores = sapply(meta_analysis_stats,function(x)x$re_model1$I2)
 I2_scores = unlist(I2_scores[sapply(I2_scores,length)>0])
 hist(I2_scores)
 betas = sapply(meta_analysis_stats,function(x)x$re_model1$beta[1,1])
 betas = unlist(betas[names(I2_scores)])
+pvals = sapply(meta_analysis_stats,function(x)x$re_model1$pval)
+pvals = unlist(pvals[names(I2_scores)])
+targeted_diff_p = 
+  sapply(meta_analysis_stats,function(x)x$re_model2$pval[2])
+targeted_diff_p = unlist(targeted_diff_p[names(I2_scores)])
 plot(betas,I2_scores)
-
+plot(-log10(pvals),I2_scores)
+plot(-log10(targeted_diff_p),I2_scores)
+plot(-log10(targeted_diff_p),-log10(pvals))
+# plot examples
+agree_example = names(sample(which(pvals< 0.001 & I2_scores < 20))[1])
+forest(meta_analysis_stats[[agree_example]]$re_model1,
+       slab = meta_analysis_stats[[agree_example]][[1]][,1],
+       main = agree_example,xlab = "Log fc",
+       col = "blue",cex = 1.1)
+disagree_example = names(sample(which(targeted_diff_p< 0.001)))[1]
+forest(meta_analysis_stats[[disagree_example]]$re_model1,
+       slab = meta_analysis_stats[[disagree_example]][[1]][,1],
+       main = disagree_example,xlab = "Log fc",
+       col = "blue",cex = 1.1)
 
 
 ```
