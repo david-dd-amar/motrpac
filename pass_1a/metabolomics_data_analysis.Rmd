@@ -416,7 +416,6 @@ for(nn1 in names(metabolomics_processed_datasets)){
     nn2_tissue = gsub("_powder","",nn2_tissue)
     nn2_dataset = strsplit(nn2,split=",")[[1]][2]
     if(nn1_tissue!=nn2_tissue){next}
-    print(nn2)
     # get the numeric datasets and their annotation
     x = metabolomics_processed_datasets[[nn1]]$sample_data
     y = metabolomics_processed_datasets[[nn2]]$sample_data
@@ -845,29 +844,28 @@ forest(meta_analysis_stats[[disagree_example2]]$re_model1,
 Use 10-fold cross validation for analysis within tissues.
 
 ```{r,eval=FALSE,fig.align="center",out.height='60%',out.width='60%',eval=FALSE}
-nfolds = 10
+nfolds = 5
 prediction_analysis_results = list()
 for(nn1 in names(metabolomics_processed_datasets)){
   nn1_tissue = strsplit(nn1,split=",")[[1]][1]
   nn1_tissue = gsub("_powder","",nn1_tissue)
+  if(grepl("untargeted",nn1)){next}
   for(nn2 in names(metabolomics_processed_datasets)){
+    if(nn2 == nn1){next}
+    if(!grepl("untargeted",nn2)){next}
     nn2_tissue = strsplit(nn2,split=",")[[1]][1]
     nn2_tissue = gsub("_powder","",nn2_tissue)
+    nn2_dataset = strsplit(nn2,split=",")[[1]][2]
     if(nn1_tissue!=nn2_tissue){next}
-    print(paste("training set:",nn2))
-    print(paste("test set:",nn1))
-    
-    # get the data, merge samples by bid if necessary
+    print(paste("features from:",nn2))
+    print(paste("labels from:",nn1))
+    # get the numeric datasets and their annotation
     y = metabolomics_processed_datasets[[nn1]]$sample_data
     x = metabolomics_processed_datasets[[nn2]]$sample_data
-    y_meta = unique(metabolomics_processed_datasets[[nn1]]$sample_meta_parsed)
-    # # remove metadata variables with too many NAs
-    # na_counts = apply(is.na(y_meta),2,sum)
-    # y_meta = y_meta[,na_counts/nrow(y_meta) == 0]
-    rownames(y_meta) = y_meta$bid
+    # align the sample sets
     bid_y = merged_dmaqc_data[colnames(y),"bid"]
     bid_x = merged_dmaqc_data[colnames(x),"bid"]    
-    # merge samples from the same BID
+    # step 1: merge samples from the same BID
     if(length(unique(bid_x))!=length(bid_x)){
       x = aggregate_repeated_samples(x,bid_x)
     }
@@ -879,30 +877,32 @@ for(nn1 in names(metabolomics_processed_datasets)){
     }else{
       colnames(y) = bid_y
     }
-    
-    if(ncol(y)>1000){next}
-    
-    cov_cols = intersect(colnames(y_meta),
-                          setdiff(biospec_cols,"bid"))
-    covs = as.matrix(y_meta[colnames(y),cov_cols])
-    
-    # regress the covariates out - simple linear analysis
-    y = lm_regress_out_matrix(t(y),covs)
-    
-    # Prepare the input for the ML part
-    shared_bids = as.character(intersect(rownames(y),colnames(x)))
+    # step 2: use the shared bio ids
+    shared_bids = as.character(intersect(colnames(y),colnames(x)))
     x = t(as.matrix(x[,shared_bids]))
-    y = as.matrix(y[shared_bids,])
+    y = t(as.matrix(y[,shared_bids]))
+    # At this point x and y are over the same BIDs, now we add the metadata
+    y_meta = unique(metabolomics_processed_datasets[[nn1]]$sample_meta_parsed)
+    rownames(y_meta) = y_meta$bid
+    y_meta = y_meta[shared_bids,]
+    
+    # take the covariates (ignore distances)
+    curr_cov_cols = intersect(colnames(y_meta),biospec_cols[2])
+    curr_covs = data.frame(y_meta[,curr_cov_cols])
+    names(curr_covs) = curr_cov_cols
+    curr_covs$sex = y_meta$animal.registration.sex # add sex
+    # add the covariates into x
+    x = cbind(x,curr_covs)
     
     # Run the regressions
     folds = sample(rep(1:nfolds,(1+nrow(x)/nfolds)))[1:nrow(x)]
     numFeatures = min(ncol(x),2000)
     preds = c();real=c()
     for(i in 1:ncol(y)){
+      if( i %% 10 == 0){print(paste("analyzing metabolite number:",i))}
       y_i = y[,1]
       i_preds = c();i_real=c()
       for(j in 1:nfolds){
-        print(j)
         tr_x = x[folds!=j,]
         tr_yi = y_i[folds!=j]
         te_x = x[folds==j,]
