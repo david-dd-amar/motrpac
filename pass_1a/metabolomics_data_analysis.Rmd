@@ -1018,7 +1018,7 @@ for(tissue in names(results_metrics)){
     }
     colnames(rho_vs_cv)[1] = "dataset"
     boxplot(rhos~discCoVs:dataset,data=rho_vs_cv,las=2,
-            ylab="Spearman",xlab = "",
+            ylab="Spearman",xlab = "",ylim=c(0,1),
             main = paste(tissue,tar,sep=","))
   }
 }
