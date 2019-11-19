@@ -60,9 +60,10 @@ time_to_freeze = merged_dmaqc_data$time_to_freeze[blood_samples] =
   blood_freeze_time[blood_samples]
 
 # Load our parsed metabolomics datasets
-metabolomics_parsed_datasets = load_from_bucket(
+metabolomics_bucket_obj = load_from_bucket(
   file = "metabolomics_parsed_datasets_pass1a_external1.RData",
-  bucket = "gs://bic_data_analysis/pass1a/metabolomics/")[[1]]
+  bucket = "gs://bic_data_analysis/pass1a/metabolomics/")
+metabolomics_parsed_datasets = metabolomics_bucket_obj[[1]]
 
 # # # Read the dictionary
 # dict_bucket =
