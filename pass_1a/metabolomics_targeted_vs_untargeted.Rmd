@@ -22,6 +22,7 @@ source("~/Desktop/repos/motrpac-bic-norm-qc/tools/association_analysis_methods.R
 source("~/Desktop/repos/motrpac-bic-norm-qc/tools/data_aux_functions.R")
 source("~/Desktop/repos/motrpac/tools/prediction_ml_tools.R")
 library(randomForest) # for classification tests
+library(ggcorrplot)
 
 # Load the dmaqc data
 merged_dmaqc_data =  load_from_bucket("merged_dmaqc_data2019-10-15.RData",
@@ -46,10 +47,11 @@ merged_dmaqc_data$time_to_freeze[blood_samples] =
   blood_freeze_time[blood_samples]
 
 # Load our parsed metabolomics datasets
-metabolomics_bucket_obj = load_from_bucket(
+download_obj = load_from_bucket(
   file = "metabolomics_parsed_datasets_pass1a_external1.RData",
   bucket = "gs://bic_data_analysis/pass1a/metabolomics/")
-metabolomics_parsed_datasets = metabolomics_bucket_obj[[1]]
+metabolomics_parsed_datasets = 
+  download_obj$metabolomics_parsed_datasets
 
 # Load the processed, merged, normalized datasets
 metabolomics_processed_datasets = load_from_bucket(
@@ -69,6 +71,14 @@ differential_analysis_cols = c(
   "animal.key.is_control"
 )
 pipeline_qc_cols = c("sample_order")
+
+# Get some stats about the dataset
+par(mfrow=c(1,2))
+num_features = sapply(metabolomics_parsed_datasets,function(x)nrow(x$sample_data))
+hist(log10(num_features),xlab="Log10 number of metabolites",main="")
+num_samples = sapply(metabolomics_parsed_datasets,function(x)ncol(x$sample_data))
+hist(num_samples,xlab = "Number of samples",main="")
+
 ```
 
 # Log-transform: effect on variance
@@ -113,6 +123,21 @@ plot(Num_NAs~Mean_intensity,df,cex=0.5,pch=20,
 
 ```
 
+# Change the dataset names (optional)
+
+```{r}
+dataset2site = sapply(metabolomics_processed_datasets,
+                      function(x)tolower(unique(x$sample_meta$site)))
+dataset2site = gsub(" ","_",dataset2site)
+newnames = names(metabolomics_processed_datasets)
+newnames = gsub("metab_t_","",newnames)
+newnames = gsub("metab_u_","",newnames)
+newnames = gsub("_powder","",newnames)
+newnames = gsub(",named","",newnames)
+inds = !grepl("untargeted",newnames)
+newnames[inds] = paste(newnames[inds],dataset2site[inds],sep=",")
+names(metabolomics_processed_datasets) = newnames
+```
 
 # Log-transform: effect on differential analysis
 
@@ -486,6 +511,7 @@ extract_diag_vs_non_diag<-function(corrs,func=mean_abs,...){
   return(c(same=same,other=other))
 }
 
+# all pairwise correlations
 for(tar_dataset in names(single_metabolite_corrs)){
   l = single_metabolite_corrs[[tar_dataset]]
   if(length(l)==0){next}
@@ -495,6 +521,7 @@ for(tar_dataset in names(single_metabolite_corrs)){
       function(x)strsplit(x,split=",")[[1]][2])
   rownames(corr_info) = gsub("metab_u_","",rownames(corr_info))
   rownames(corr_sd) = rownames(corr_info)
+  names(l) = rownames(corr_info)
   corr_info$dataset = rownames(corr_info)
   corr_sd$dataset = corr_info$dataset
   corr_info = melt(corr_info)
@@ -509,7 +536,70 @@ for(tar_dataset in names(single_metabolite_corrs)){
       labs(fill = "Pair type") + 
       theme(legend.position="top",legend.direction = "horizontal")
   )
+  if(!is.null(dim(l[[1]]))){
+    print(ggcorrplot(l[[1]],tl.cex=9,tl.srt = 45) +
+            ggplot2::labs(x = names(l)[1], y = tar_dataset) +
+            ggplot2::theme(
+              axis.title.x = element_text(angle = 0, color = 'grey20'),
+              axis.title.y = element_text(angle = 90, color = 'grey20')
+            )
+    )
+  }
 }
+
+# summarize by tissue
+tissue2single_metabolite_corrs<-list()
+for(tar_dataset in names(single_metabolite_corrs)){
+  l = single_metabolite_corrs[[tar_dataset]]
+  if(length(l)==0){next}
+  tar_tissue = strsplit(tar_dataset,split=",")[[1]][1]
+  if(! tar_tissue %in% names(tissue2single_metabolite_corrs)){
+    tissue2single_metabolite_corrs[[tar_tissue]] = c()
+  }
+  names(l) = sapply(names(l),function(x)strsplit(x,split=",")[[1]][2])
+  names(l) = gsub("metab_u_","",names(l))
+  currvals = c()
+  for(untar_name in names(l)){
+    m = l[[untar_name]]
+    if(is.null(dim(m))||nrow(m)<2){next}
+    diag_vals = diag(m)
+    non_diag_vals = m[lower.tri(m)]
+    currvals = rbind(currvals,
+                     cbind(diag_vals,untar_name,"same"))
+    currvals = rbind(currvals,
+                     cbind(non_diag_vals,untar_name,"other"))
+  }
+  tissue2single_metabolite_corrs[[tar_tissue]] = rbind(
+    tissue2single_metabolite_corrs[[tar_tissue]],
+    currvals
+  )
+}
+
+for(tissue in names(tissue2single_metabolite_corrs)){
+  d = tissue2single_metabolite_corrs[[tissue]]
+  d = as.data.frame(d)
+  d[[1]] = as.numeric(as.character(d[[1]]))
+  means = aggregate(d[[1]],list(dataset=d[[2]],
+                                pair_type = d[[3]]),mean)
+  sds = aggregate(d[[1]],list(dataset=d[[2]],
+                                pair_type = d[[3]]),sd)
+  means$sd = sds$x
+  means$pair_type = as.character(means$pair_type)
+  means = means[order(as.character(means$pair_type),decreasing = T),]
+  means$pair_type = factor(means$pair_type,levels = c("same","other"))
+  
+  print(
+    ggplot(means, aes(x=dataset, y=x, fill=pair_type,order=pair_type)) +
+      geom_bar(position=position_dodge(), stat="identity", colour='black') +
+      geom_errorbar(aes(ymin=pmax(0,x-sd), ymax=pmin(1,x+sd)),na.rm=T, 
+                   width=.2,position=position_dodge(.9)) +
+      ylim(0,1) + 
+    ggtitle(tissue) + xlab("Untargeted dataset") + ylab("Spearman") +
+      labs(fill = "Pair type") + 
+      theme(legend.position="top",legend.direction = "horizontal")
+  )
+}
+
 ```
 
 ### Meta-analysis of differential effects
@@ -697,6 +787,8 @@ Use 5-fold cross validation for analysis within tissues. For each pair of target
 ```{r,out.height='50%',out.width='50%',eval=FALSE,message=FALSE,warning=FALSE}
 nfolds = 5
 prediction_analysis_results = list()
+naive_cov_prediction_analysis_results = list()
+
 for(nn1 in names(metabolomics_processed_datasets)){
   nn1_tissue = strsplit(nn1,split=",")[[1]][1]
   nn1_tissue = gsub("_powder","",nn1_tissue)
@@ -710,6 +802,11 @@ for(nn1 in names(metabolomics_processed_datasets)){
     if(nn1_tissue!=nn2_tissue){next}
     print(paste("features from:",nn2))
     print(paste("labels from:",nn1))
+    
+    if(runif(1)>0.3){next} # just to get results quickly for a few pairs
+    currname = paste(nn1,nn2,sep=";")
+    if(currname %in% names(prediction_analysis_results)){next}
+    
     # get the numeric datasets and their annotation
     y = metabolomics_processed_datasets[[nn1]]$sample_data
     x = metabolomics_processed_datasets[[nn2]]$sample_data
@@ -747,11 +844,11 @@ for(nn1 in names(metabolomics_processed_datasets)){
     
     # Run the regressions
     folds = sample(rep(1:nfolds,(1+nrow(x)/nfolds)))[1:nrow(x)]
-    numFeatures = min(ncol(x),2000)
+    numFeatures = min(ncol(x),1000)
     preds = c();real=c()
     for(i in 1:ncol(y)){
       if( i %% 10 == 0){print(paste("analyzing metabolite number:",i))}
-      y_i = y[,1]
+      y_i = y[,i]
       i_preds = c();i_real=c()
       for(j in 1:nfolds){
         tr_x = x[folds!=j,]
@@ -763,7 +860,7 @@ for(nn1 in names(metabolomics_processed_datasets)){
         # te_preds = predict(model,newdata = te_x)
         model = feature_selection_wrapper(tr_x,tr_yi,
                    coeff_of_var,randomForest,
-                   topK = numFeatures,ntree=50)
+                   topK = numFeatures,ntree=100)
         te_preds = predict(model,newdata = te_x)
         i_preds = c(i_preds,te_preds)
         i_real = c(i_real,te_y)
@@ -772,31 +869,93 @@ for(nn1 in names(metabolomics_processed_datasets)){
       real = cbind(real,i_real)
     }
     colnames(preds) = colnames(y)
-    colnames(reals) = colnames(y)
-    currname = paste(nn1,nn2,sep=";")
+    colnames(real) = colnames(y)
+    
     prediction_analysis_results[[currname]] = list(
       preds = preds,real=real
     )
   }
-}
-save_to_bucket(prediction_analysis_results,
+  
+  save_to_bucket(prediction_analysis_results,naive_cov_prediction_analysis_results,
                file="tar_vs_untar_prediction_analysis_results.RData",
                bucket = "gs://bic_data_analysis/pass1a/metabolomics/")
+}
+
+naive_cov_prediction_analysis_results = list()
+for(nn1 in names(metabolomics_processed_datasets)){
+  if(grepl("untargeted",nn1)){next}
+  print(nn1)
+    
+  # get the numeric datasets and their annotation
+  y = metabolomics_processed_datasets[[nn1]]$sample_data
+  bid_y = merged_dmaqc_data[colnames(y),"bid"]
+  if(length(unique(bid_y))!=length(bid_y)){
+    y = aggregate_repeated_samples(y,bid_y)
+  }else{
+    colnames(y) = bid_y
+  }
+  y_meta = unique(metabolomics_processed_datasets[[nn1]]$sample_meta_parsed)
+  rownames(y_meta) = y_meta$bid
+  y_meta = y_meta[as.character(colnames(y)),]
+  y = t(as.matrix(y))
+    
+  # take the covariates (ignore distances)
+  curr_cov_cols = intersect(colnames(y_meta),biospec_cols[2])
+  curr_covs = data.frame(y_meta[,curr_cov_cols])
+  names(curr_covs) = curr_cov_cols
+  curr_covs$sex = y_meta$animal.registration.sex # add sex
+    
+  # Run the regressions
+  folds = sample(rep(1:nfolds,(1+nrow(x)/nfolds)))[1:nrow(x)]
+  numFeatures = min(ncol(x),2000)
+  preds = c();real=c()
+  for(i in 1:ncol(y)){
+    if( i %% 10 == 0){print(paste("analyzing metabolite number:",i))}
+    y_i = y[,i]
+    i_preds = c();i_real=c()
+    for(j in 1:nfolds){
+      tr_x = curr_covs[folds!=j,]
+      tr_yi = y_i[folds!=j]
+      te_x = curr_covs[folds==j,]
+      te_y = y_i[folds==j]
+      # random forest
+      model = randomForest(tr_yi,x=tr_x,ntree = 20)
+      te_preds = predict(model,newdata = te_x)
+      i_preds = c(i_preds,te_preds)
+      i_real = c(i_real,te_y)
+    }
+    preds = cbind(preds,i_preds)
+    real = cbind(real,i_real)
+  }
+  colnames(preds) = colnames(y)
+  colnames(real) = colnames(y)
+    
+  naive_cov_prediction_analysis_results[[nn1]] = list(
+      preds = preds,real=real
+  )
+}
+
+save_to_bucket(prediction_analysis_results, naive_cov_prediction_analysis_results,
+               file="tar_vs_untar_prediction_analysis_results.RData",
+               bucket = "gs://bic_data_analysis/pass1a/metabolomics/")
+
 ```
 
 We now take the predicted and real values and estimate the prediction accuracy in different ways. 
 
-```{r,out.height='50%',out.width='50%',eval=TRUE,message=FALSE,warning=FALSE}
+```{r,out.height='50%',out.width='50%',eval=FALSE,message=FALSE,warning=FALSE}
 
 prediction_analysis_results =  load_from_bucket(
   "tar_vs_untar_prediction_analysis_results.RData",
     "gs://bic_data_analysis/pass1a/metabolomics/",F)
 prediction_analysis_results = prediction_analysis_results[[1]]
 
+all_pred_results = c(prediction_analysis_results,naive_cov_prediction_analysis_results)
+
 results_metrics = list()
-for(nn in names(prediction_analysis_results)){
-  preds = prediction_analysis_results[[nn]]$preds
-  real = prediction_analysis_results[[nn]]$real
+for(nn in names(all_pred_results)){
+  preds = all_pred_results[[nn]]$preds
+  real = all_pred_results[[nn]]$real
   tar_name = strsplit(nn,split=";")[[1]][1]
   untar_name = strsplit(nn,split=";")[[1]][2]
   y = metabolomics_processed_datasets[[tar_name]]$sample_data
@@ -807,6 +966,7 @@ for(nn in names(prediction_analysis_results)){
   currtissue = strsplit(tar_name,split=",")[[1]][1]
   tar_name = gsub(paste(currtissue,",",sep=""),"",tar_name)
   untar_name = gsub(paste(currtissue,",",sep=""),"",untar_name)
+  if(is.na(untar_name)){untar_name = tar_name}
   if(! currtissue %in% names(results_metrics)){
     results_metrics[[currtissue]] = list()
   }
@@ -832,24 +992,30 @@ for(nn in names(prediction_analysis_results)){
 
 We now present a few summary plots.
 
-```{r,out.height='50%',out.width='50%',eval=TRUE,message=FALSE,warning=FALSE}
+```{r,out.height='50%',out.width='50%',eval=FALSE,message=FALSE,warning=FALSE}
 for(tissue in names(results_metrics)){
+  tissue_summary = c()
   for(tar in names(results_metrics[[tissue]])){
     l = results_metrics[[tissue]][[tar]]
     rho_vs_cv = c()
     for(untar in names(l)){
       m = l[[untar]][,c("rhos","discCoVs")] # take the current matrix
-      m = cbind(rep(untar,nrow(m)),m)
+      untar_name = untar
+      if(untar == tar){
+        untar_name = "covarites"
+      }
+      m = cbind(rep(untar_name,nrow(m)),m)
       m$discCoVs = as.numeric(m$discCoVs)
       rho_vs_cv = rbind(rho_vs_cv,m)
     }
     colnames(rho_vs_cv)[1] = "dataset"
-    boxplot(rhos~discCoVs:dataset,data=rho_vs_cv,las=2,
-            ylab="Spearman",xlab = "",ylim=c(0,1),
-            main = paste(tissue,tar,sep=","))
+    tissue_summary = rbind(tissue_summary,rho_vs_cv)
   }
+  boxplot(rhos~dataset,data=tissue_summary,las=2,
+            ylab="Spearman",xlab = "",ylim=c(0,1),
+            main = paste(tissue,sep=","))
+  print(table(tissue_summary$dataset,tissue_summary$rhos>0.7))
 }
-
 
 ```
 
