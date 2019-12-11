@@ -945,10 +945,13 @@ We now take the predicted and real values and estimate the prediction accuracy i
 
 ```{r,out.height='50%',out.width='50%',eval=FALSE,message=FALSE,warning=FALSE}
 
-prediction_analysis_results =  load_from_bucket(
+prediction_analysis_results_obj =  load_from_bucket(
   "tar_vs_untar_prediction_analysis_results.RData",
     "gs://bic_data_analysis/pass1a/metabolomics/",F)
-prediction_analysis_results = prediction_analysis_results[[1]]
+prediction_analysis_results =
+  prediction_analysis_results_obj$prediction_analysis_results
+naive_cov_prediction_analysis_results =
+  prediction_analysis_results_obj$naive_cov_prediction_analysis_results
 
 all_pred_results = c(prediction_analysis_results,naive_cov_prediction_analysis_results)
 
@@ -1014,7 +1017,8 @@ for(tissue in names(results_metrics)){
   boxplot(rhos~dataset,data=tissue_summary,las=2,
             ylab="Spearman",xlab = "",ylim=c(0,1),
             main = paste(tissue,sep=","))
-  print(table(tissue_summary$dataset,tissue_summary$rhos>0.7))
+  tb = table(tissue_summary$dataset,tissue_summary$rhos>0.7)
+  print(1 - (tb[,"FALSE"]/rowSums(tb)))
 }
 
 ```
