@@ -65,12 +65,6 @@ metabolomics_bucket_obj = load_from_bucket(
   bucket = "gs://bic_data_analysis/pass1a/metabolomics/")
 metabolomics_parsed_datasets = metabolomics_bucket_obj$metabolomics_parsed_datasets
 
-# # # Read the dictionary
-# dict_bucket =
-#   "gs://motrpac-external-release1-results/metabolomics_targeted/motrpac_metabolomics_data_dictionary-v1.1.5.txt"
-# dict_download = get_single_file_from_bucket_to_local_dir(dict_bucket)
-# metabolomics_dict = fread(dict_download[[1]],data.table = F)
-# metabolomics_dict[grepl("gluc",metabolomics_dict[,2],ignore.case = T),]
 ```
 Define the variables to be adjusted for:
 
@@ -239,11 +233,6 @@ library(corrplot)
 par(mar = c(5,5,5,10))
 normdiffs = t(num_nonnormal_log)- t(num_nonnormal_unlog)
 corrplot(normdiffs,is.corr = F,tl.cex = 0.7)
-# normdiffs_is_untar = grepl("untar",rownames(normdiffs))
-# corrplot(normdiffs[normdiffs_is_untar,],is.corr = F,tl.cex = 0.7)
-# corrplot(normdiffs[!normdiffs_is_untar,],is.corr = F,tl.cex = 0.7)
-
-
 ```
 
 
@@ -409,7 +398,7 @@ for(norm_pairs in tar_vs_untar_norm_pairs){
         ))
         # Add dataset information, time point, tissue
         # These are important annotations for our summary matrix
-      # called single_metabolite_de below
+        # called single_metabolite_de below
         added_columns = matrix(cbind(
           rep(nn1,length(shared_metabolites)),
           rep(nn2,length(shared_metabolites)),
@@ -482,7 +471,8 @@ We next transform the data above into tables that contain data for each combinat
 library(metafor)
 for(pair_name in names(norm_method2comparison_results)){
   meta_analysis_stats = list()
-  single_metabolite_de = norm_method2comparison_results$single_metabolite_de
+  single_metabolite_de = 
+    norm_method2comparison_results[[pair_name]]$single_metabolite_de
   for(tissue in unique(single_metabolite_de$tissue)){
     for(tp in unique(single_metabolite_de$tp)){
       curr_subset = single_metabolite_de[
@@ -519,8 +509,6 @@ for(pair_name in names(norm_method2comparison_results)){
 }
 
 ```
-
-We now show some plots to summarize the comparison. 
 
 ## Targeted vs. Untargeted: compound overlap 
 
@@ -567,7 +555,7 @@ print(ggplot(named_dataset_coverage, aes(x=name, y=percentage)) +
 
 ### Spearman correlations
 
-Compare the normalization methods by their correlation distributions
+Compare the normalization methods by their correlation distributions.
 
 ```{r,out.height='50%',out.width='50%',message=FALSE,warning=FALSE}
 
@@ -606,141 +594,109 @@ print(
 
 ```
 
-### Spearman correlations
-
-Compare the normalization methods by their correlation distributions
+### Differential analysis results
 
 ```{r,out.height='50%',out.width='50%',message=FALSE,warning=FALSE}
-
-rep_correlations = c()
-tissues = unique(sapply(metabolomics_processed_datasets,function(x)x$tissue))
-for(pair_name in names(norm_method2comparison_results)){
-  single_metabolite_corrs = 
-    norm_method2comparison_results[[pair_name]]$single_metabolite_corrs
-  for(tissue in tissues){
-    curr_datasets = names(single_metabolite_corrs)[
-      grepl(tissue,names(single_metabolite_corrs))
-    ]
-    between_corrs = c()
-    for(tar_dataset in curr_datasets){
-      l = single_metabolite_corrs[[tar_dataset]]
-      between_corrs = c(between_corrs,unname(unlist(sapply(l,diag))))
-    }
-    rep_correlations = rbind(rep_correlations,
-          c(pair_name,tissue,mean(between_corrs,na.rm=T),sd(between_corrs,na.rm=T)))
+pthr = 0.001
+for(tissue in tissues){
+  for(pair_name in names(norm_method2comparison_results)){
+      meta_analysis_stats = 
+          norm_method2comparison_results[[pair_name]]$meta_analysis_stats
+      meta_analysis_stats = meta_analysis_stats[
+        grepl(tissue,names(meta_analysis_stats))
+      ]
+      if(length(meta_analysis_stats)==0){next}
+      naive_analysis_tar = sapply(meta_analysis_stats,
+        function(x)sum(x$curr_met_data[,"Pvalue"]<pthr &
+                     x$curr_met_data[,"is_targeted"]))
+      naive_analysis_untar = sapply(meta_analysis_stats,
+        function(x)sum(x$curr_met_data[,"Pvalue"]<pthr &
+                     !x$curr_met_data[,"is_targeted"]))
+      tb = table(naive_analysis_tar,naive_analysis_untar)
+      nonsig_in_both = tb[1,1]
+      tb[1,1] = 0
+      barplot(t(tb),
+              legend=T,xlab="Number of targeted datasets with p<0.001",
+              ylab = "log2 number of metabolites",
+              main = paste(tissue,pair_name))
   }
 }
-rep_correlations = rep_correlations[!is.na(rep_correlations[,3]),]
-rep_correlations = data.frame(
-  "NormMethod" = rep_correlations[,1],
-  "Tissue" = rep_correlations[,2],
-  "Mean" = as.numeric(rep_correlations[,3]),
-  "SD" = as.numeric(rep_correlations[,4])
-)
-rep_correlations = rep_correlations[order(rep_correlations$Tissue),]
-print(
-    ggplot(rep_correlations, aes(x=Tissue, y=Mean, fill=NormMethod)) +
-      geom_bar(position=position_dodge(), stat="identity", colour='black') +
-      geom_errorbar(aes(ymin=Mean-SD, ymax=Mean+SD),na.rm=T, 
-                   width=.2,position=position_dodge(.9))
-)
-
 ```
+
 
 ### Meta-analysis results
 
 ```{r,out.height='50%',out.width='50%',message=FALSE,warning=FALSE}
-
-all_untar_pvals = c()
-for(pair_name in names(norm_method2comparison_results)){
-  meta_analysis_stats = 
-    norm_method2comparison_results[[pair_name]]$meta_analysis_stats
+library(VennDiagram)
+require(gridExtra)
+pthr = 0.001
+tissues = unique(sapply(metabolomics_processed_datasets,function(x)x$tissue))
+tar_vs_untar_correlations = c()
+for(tissue in tissues){
+  for(pair_name in names(norm_method2comparison_results)){
+    meta_analysis_stats = 
+        norm_method2comparison_results[[pair_name]]$meta_analysis_stats
+    meta_analysis_stats  = meta_analysis_stats[
+        grepl(tissue,names(meta_analysis_stats))
+      ]
+    if(is.null(meta_analysis_stats) || length(meta_analysis_stats)==0){next}
   
-  # P-value for the difference between targeted and untargeted
-  targeted_diff_p = 
+    # P-value for the difference between targeted and untargeted
+    targeted_diff_p = 
     sapply(meta_analysis_stats,function(x)x$re_model2$pval[2])
 
-  # P-values - targeted vs. untargeted
-  pvals_tar = sapply(meta_analysis_stats,function(x)x$re_model_tar$pval)
-  pvals_untar = sapply(meta_analysis_stats,function(x)x$re_model_untar$pval)
-  pvals_untar = unlist(pvals_untar[sapply(pvals_untar,length)>0])
-  all_untar_pvals = cbind(all_untar_pvals,pvals_untar)
-  significant_in = rep("None",length(pvals_untar))
-  significant_in[pvals_tar<0.001] = "Targeted"
-  significant_in[pvals_untar<0.001] = "Untargeted"
-  significant_in[pvals_tar<0.001 & pvals_untar<0.001] = "Both"
-  significant_diff = targeted_diff_p<0.001
-  df = data.frame(
-    targeted = -log10(pvals_tar),
-    untargeted = -log10(pvals_untar),
-    significant_in = significant_in,
-    significant_diff = significant_diff
-  )
-  rho = cor(pvals_tar,pvals_untar,method = "pearson")
-  rhop = cor.test(pvals_tar,pvals_untar,method = "pearson")$p.value
-  print(
-    ggplot(df, aes(x=targeted, y=untargeted,
+   # P-values - targeted vs. untargeted
+    pvals_tar = sapply(meta_analysis_stats,function(x)x$re_model_tar$pval)
+    pvals_untar = sapply(meta_analysis_stats,function(x)x$re_model_untar$pval)
+    pvals_untar = unlist(pvals_untar[sapply(pvals_untar,length)>0])
+    significant_in = rep("None",length(pvals_untar))
+    significant_in[pvals_tar<pthr] = "Targeted"
+    significant_in[pvals_untar<pthr] = "Untargeted"
+    significant_in[pvals_tar<pthr & pvals_untar<pthr] = "Both"
+    significant_diff = targeted_diff_p<pthr
+    rho = cor(-log10(pvals_tar),-log10(pvals_untar),method = "pearson")
+    # Betas - targeted vs. untargeted
+    betas_tar = 
+      sapply(meta_analysis_stats,function(x)x$re_model_tar$beta[1,1])
+    betas_untar = 
+      sapply(meta_analysis_stats,function(x)x$re_model_untar$beta[1,1])
+    betas_untar = unlist(betas_untar[sapply(betas_untar,length)>0])
+    df = data.frame(
+      targeted = betas_tar,
+      untargeted = betas_untar,
+      significant_in = significant_in,
+      significant_diff = significant_diff
+    )
+    rho_beta = cor(betas_untar,betas_tar,method = "pearson")
+    rhop = cor.test(betas_untar,betas_tar,method = "pearson")$p.value
+    print(
+      ggplot(df, aes(x=targeted, y=untargeted,
                  shape=significant_diff, color=significant_in)) +
-      geom_point() +
-      ggtitle(paste(pair_name,"-log10 p-values, rho=:",format(rho,digits=2),
-                  "(p=",format(rhop,digits=3),")"))
-  )
-
-  print("### Summary of differences in RE models ###")
-  print("Model is significant at p<0.001:")
-  print(table(df$significant_in))
-  print("Adding is_targeted as a covariate has p<0.001:")
-  print(table(df$significant_diff))
-
-  # Betas - targeted vs. untargeted
-  betas_tar = sapply(meta_analysis_stats,function(x)x$re_model_tar$beta[1,1])
-  betas_untar = sapply(meta_analysis_stats,function(x)x$re_model_untar$beta[1,1])
-  betas_untar = unlist(betas_untar[sapply(betas_untar,length)>0])
-  df = data.frame(
-    targeted = betas_tar,
-    untargeted = betas_untar,
-    significant_in = significant_in,
-    significant_diff = significant_diff
-  )
-  rho = cor(betas_untar,betas_tar,method = "pearson")
-  rhop = cor.test(betas_untar,betas_tar,method = "pearson")$p.value
-  print(
-    ggplot(df, aes(x=targeted, y=untargeted,
-                 shape=significant_diff, color=significant_in)) +
-      geom_point() +
-    ggtitle(paste(pair_name,"effect sizes, rho=:",format(rho,digits=2),
-                  "(p=",format(rhop,digits=3),")"))
-  )
+      geom_point() + geom_abline(slope=1,intercept = 0) + 
+      ggtitle(paste(tissue, pair_name,
+                    "effects, rho=:",format(rho_beta,digits=2)))
+    )
+  
+    tar_vs_untar_correlations = rbind(tar_vs_untar_correlations,
+                                      c(tissue,pair_name,rho,rho_beta))
+   # draw a venn diagram
+    inter_area = sum(significant_in=="Both")
+    tar_area = sum(significant_in=="Targeted") + inter_area
+    untar_area = sum(significant_in=="Untargeted") + inter_area
+    subt = paste("Not significant in both:",table(significant_in)["None"])
+    
+    venng = draw.pairwise.venn(tar_area,untar_area,inter_area,
+            c("Targeted","Untargeted"),lty = rep("blank",2), 
+            fill = c("pink", "cyan"), alpha = rep(0.5, 2),
+            cat.dist = rep(0.01, 2),ind=F)
+    # grid.newpage()
+    grid.arrange(gTree(children=venng), 
+                 top=paste(tissue,pair_name), bottom=subt)
+  }
 }
 
 
 ```
-
-
-```{r,out.height='50%',out.width='50%',message=FALSE,warning=FALSE}
-# Naive comparison
-thr = 0.001
-
-naive_analysis_tables = lapply(meta_analysis_stats,
-    function(x)table(x$curr_met_data[,"Pvalue"]<thr,
-                     x$curr_met_data[,"is_targeted"]))
-table_with_sig_results = naive_analysis_tables[
-  sapply(naive_analysis_tables,nrow)>1
-]
-percent_with_sig = 
-  length(table_with_sig_results)/length(naive_analysis_tables)
-
-sig_results = sapply(table_with_sig_results,
-      function(x)paste(x["TRUE",c("0","1")]>0,collapse=","))
-sig_results_counts = table(sig_results)
-
-print("Counting the number of metabolites with p<0.001")
-print(paste("Significant in targeted only:",sig_results_counts["FALSE,TRUE"]))
-print(paste("Significant in untargeted only:",sig_results_counts["TRUE,FALSE"]))
-print(paste("Significant in both:",sig_results_counts["TRUE,TRUE"]))
-
-```
-
 
 ## Comparison results: detailed analysis of the selected normalization
 
@@ -762,7 +718,8 @@ extract_diag_vs_non_diag<-function(corrs,func=mean,...){
   return(c(same=same,other=other))
 }
 
-single_metabolite_corrs = norm_method2comparison_results$`log2,imp;log2,imp`
+single_metabolite_corrs =
+  norm_method2comparison_results$`log2,imp;log2,imp`$single_metabolite_corrs
 for(tar_dataset in names(single_metabolite_corrs)){
   l = single_metabolite_corrs[[tar_dataset]]
   if(length(l)==0){next}
@@ -789,13 +746,38 @@ for(tar_dataset in names(single_metabolite_corrs)){
 }
 ```
 
-### Meta-analysis of differential effects
+### Plot selected examples
 
-Here we go into the single metabolites comparison in greater detail (again, within tissues). 
+Here are the results for lactate in plasma.
 
-We start with a few examples. Here are the results for lactate in plasma.
+Example from a log2 dataset:
 
 ```{r,out.height='50%',out.width='50%',message=FALSE,warning=FALSE}
+meta_analysis_stats = 
+  norm_method2comparison_results$`log2,imp;med,log,imp`$meta_analysis_stats
+lact_res = meta_analysis_stats[
+  grepl("lact",names(meta_analysis_stats),ignore.case = T) &
+    grepl("plasma",names(meta_analysis_stats),ignore.case = T)
+]
+lact_res_hours = sapply(names(lact_res),
+            function(x)as.numeric(strsplit(x,split=",")[[1]][3]))
+lact_res = lact_res[order(lact_res_hours)]
+for(lact_example in names(lact_res)[1:6]){
+  curr_labels = gsub("plasma,","",
+                     meta_analysis_stats[[lact_example]][[1]][,1])
+  forest(meta_analysis_stats[[lact_example]]$re_model1,
+       slab = curr_labels,
+       main = lact_example,xlab = "Log fc",
+       col = "blue",cex = 1.1)
+}
+
+```
+
+Example from a scaled dataset:
+
+```{r,out.height='50%',out.width='50%',message=FALSE,warning=FALSE}
+meta_analysis_stats = 
+  norm_method2comparison_results$`imp,none;imp,none`$meta_analysis_stats
 lact_res = meta_analysis_stats[
   grepl("lact",names(meta_analysis_stats),ignore.case = T) &
     grepl("plasma",names(meta_analysis_stats),ignore.case = T)
@@ -851,35 +833,13 @@ for(lact_example in names(lact_res)[1:6]){
 <!-- ``` -->
 
 
-We now move to a systematic comparison of the datasets. We start with a naive comparison, checking if metabolites are consistently being discovered using a simple $p=0.001$ threshold for significance.
+
+
+From the plots above we take the most extreme examples and examine their forest plots.
 
 ```{r,out.height='50%',out.width='50%',message=FALSE,warning=FALSE}
-# Naive comparison
-thr = 0.001
-naive_analysis_tables = lapply(meta_analysis_stats,
-    function(x)table(x$curr_met_data[,"Pvalue"]<thr,
-                     x$curr_met_data[,"is_targeted"]))
-table_with_sig_results = naive_analysis_tables[
-  sapply(naive_analysis_tables,nrow)>1
-]
-percent_with_sig = 
-  length(table_with_sig_results)/length(naive_analysis_tables)
-
-sig_results = sapply(table_with_sig_results,
-      function(x)paste(x["TRUE",c("0","1")]>0,collapse=","))
-sig_results_counts = table(sig_results)
-
-print("Counting the number of metabolites with p<0.001")
-print(paste("Significant in targeted only:",sig_results_counts["FALSE,TRUE"]))
-print(paste("Significant in untargeted only:",sig_results_counts["TRUE,FALSE"]))
-print(paste("Significant in both:",sig_results_counts["TRUE,TRUE"]))
-
-```
-
-As a more rigorous analysis, we use the meta-analyses to obtain useful statistics for comparison.
-
-```{r,out.height='50%',out.width='50%',message=FALSE,warning=FALSE}
-# Extract some useful statistics per analysis
+meta_analysis_stats = 
+  norm_method2comparison_results$`imp,none;imp,none`$meta_analysis_stats
 
 # P-value for the difference between targeted and untargeted
 targeted_diff_p = 
@@ -889,58 +849,9 @@ targeted_diff_p =
 pvals_tar = sapply(meta_analysis_stats,function(x)x$re_model_tar$pval)
 pvals_untar = sapply(meta_analysis_stats,function(x)x$re_model_untar$pval)
 pvals_untar = unlist(pvals_untar[sapply(pvals_untar,length)>0])
-significant_in = rep("None",length(pvals_untar))
-significant_in[pvals_tar<0.001] = "Targeted"
-significant_in[pvals_untar<0.001] = "Untargeted"
-significant_in[pvals_tar<0.001 & pvals_untar<0.001] = "Both"
-significant_diff = targeted_diff_p<0.001
-df = data.frame(
-  targeted = -log10(pvals_tar),
-  untargeted = -log10(pvals_untar),
-  significant_in = significant_in,
-  significant_diff = significant_diff
-)
-rho = cor(pvals_tar,pvals_untar,method = "spearman")
-rhop = cor.test(pvals_tar,pvals_untar,method = "spearman")$p.value
-print(
-  ggplot(df, aes(x=targeted, y=untargeted,
-                 shape=significant_diff, color=significant_in)) +
-    geom_point() +
-    ggtitle(paste("-log10 p-values, spearman:",format(rho,digits=2),
-                  "(p=",format(rhop,digits=3),")"))
-)
 
-print("### Summary of differences in RE models ###")
-print("Model is significant at p<0.001:")
-print(table(df$significant_in))
-print("Adding is_targeted as a covariate has p<0.001:")
-print(table(df$significant_diff))
 
-# Betas - targeted vs. untargeted
-betas_tar = sapply(meta_analysis_stats,function(x)x$re_model_tar$beta[1,1])
-betas_untar = sapply(meta_analysis_stats,function(x)x$re_model_untar$beta[1,1])
-betas_untar = unlist(betas_untar[sapply(betas_untar,length)>0])
-df = data.frame(
-  targeted = betas_tar,
-  untargeted = betas_untar,
-  significant_in = significant_in,
-  significant_diff = significant_diff
-)
-rho = cor(betas_untar,betas_tar,method = "spearman")
-rhop = cor.test(betas_untar,betas_tar,method = "spearman")$p.value
-print(
-  ggplot(df, aes(x=targeted, y=untargeted,
-                 shape=significant_diff, color=significant_in)) +
-    geom_point() +
-    ggtitle(paste("Effect sizes, spearman:",format(rho,digits=2),
-                  "(p=",format(rhop,digits=3),")"))
-)
-```
-
-From the plots above we take the most extreme examples and examine their forest plots.
-
-```{r,out.height='50%',out.width='50%',message=FALSE,warning=FALSE}
-agree_example = names(sample(which(pvals_tar< 1e-10 & pvals_untar < 1e-10 &
+agree_example = names(sample(which(pvals_tar< 1e-5 & pvals_untar < 1e-5 &
                                      targeted_diff_p > 0.1))[1])
 simplify_labels_for_forest<-function(s){
   s = gsub(",untargeted","",s)
@@ -954,7 +865,7 @@ forest(meta_analysis_stats[[agree_example]]$re_model1,
   main = paste(agree_example,"significant in both, tar and untar agree",sep="\n"),
   xlab = "Log fc",col = "blue")
 
-agree_p_disagree_beta = names(sample(which(pvals_tar< 1e-10 & pvals_untar < 1e-10 &
+agree_p_disagree_beta = names(sample(which(pvals_tar< 1e-5 & pvals_untar < 1e-5 &
                                      targeted_diff_p < 0.001))[1])
 forest(meta_analysis_stats[[agree_p_disagree_beta]]$re_model1,
   slab = simplify_labels_for_forest(
@@ -963,7 +874,7 @@ forest(meta_analysis_stats[[agree_p_disagree_beta]]$re_model1,
                "significant in both, tar and untar disagree",sep="\n"),
   xlab = "Log fc",col = "blue")
 
-disagree_example1 = names(sample(which(pvals_tar< 1e-20 & pvals_untar >0.1))[1])
+disagree_example1 = names(sample(which(pvals_tar< 1e-10 & pvals_untar >0.1))[1])
 forest(meta_analysis_stats[[disagree_example1]]$re_model1,
   slab = simplify_labels_for_forest(
     meta_analysis_stats[[disagree_example1]][[1]][,1]),
@@ -1079,7 +990,7 @@ save_to_bucket(prediction_analysis_results,
 
 We now take the predicted and real values and estimate the prediction accuracy in different ways. 
 
-```{r,out.height='50%',out.width='50%',eval=TRUE,message=FALSE,warning=FALSE}
+```{r,out.height='50%',out.width='50%',eval=FALSE,message=FALSE,warning=FALSE}
 
 prediction_analysis_results =  load_from_bucket(
   "tar_vs_untar_prediction_analysis_results.RData",
@@ -1125,7 +1036,7 @@ for(nn in names(prediction_analysis_results)){
 
 We now present a few summary plots.
 
-```{r,out.height='50%',out.width='50%',eval=TRUE,message=FALSE,warning=FALSE}
+```{r,out.height='50%',out.width='50%',eval=FALSE,message=FALSE,warning=FALSE}
 for(tissue in names(results_metrics)){
   for(tar in names(results_metrics[[tissue]])){
     l = results_metrics[[tissue]][[tar]]

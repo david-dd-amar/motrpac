@@ -79,7 +79,7 @@ get_simple_power_plot<-function(d,effects_vec,effect_size1,n_t,effect_size2=1,
   pc2 <- powerCurve(model3, along="g",
                     test=fixed("v","z"),alpha=alpha,nsim=nsim)
   # plot(pc3,xlab="Number of subjects")
-  return(list(pc1,pc2))
+  return(list(pc1,pc2,simr_model))
 }
 
 library(gplots)
@@ -110,17 +110,20 @@ plot_ci_results<-function(l,cols = c("red","green","blue"),pchs=20:24,
 # Example dataset:
 n_t = 2 # one for pre and then four time points
 sigma_between = 1 # random effect standard deviation
-sigma_within = 1
+sigma_within = 0.5
 n_subjects = 50
 effects_vec = c(0,1)
 
+# Original submission: 
 # Test and plot
 d = simulate_initial_dataset(n_t,sigma_between,sigma_within ,effects_vec,n_subjects,effect_size)
-plot_longi(d)
-age_cov = sort(rep(0:1,n_subjects/2))
+age_cov = sort(rep(0:2,n_subjects/3))
 newd = add_covariate_to_data(d,age_cov)
 curr_sim = get_simple_power_plot(newd,effects_vec,effect_size1=effect_size,n_t=2,
-                                 effect_size2=effect_size,max_n=150,nsim=50,alpha=0.001)
+                                 effect_size2=effect_size,max_n=150,nsim=30,alpha=0.001)
+library(MuMIn)
+r.squaredGLMM(curr_sim[[3]])
+
 par(mfrow=c(2,2))
 plot_longi(newd[newd$v==0,],main="Older",xaxt="n",ylab="Max Mito Capacity")
 axis(1, xaxp=c(0, 1, 1), las=1)
@@ -139,7 +142,8 @@ sim_results_age = list()
 for(sigma_within in sigma_within_range){
   m1 = c();m2=c()
   for (effect_size in effect_size_range){
-    d = simulate_initial_dataset(n_t,sigma_between,sigma_within ,effects_vec,n_subjects,effect_size)
+    d = simulate_initial_dataset(n_t,sigma_between,sigma_within,
+                                 effects_vec,n_subjects,effect_size)
     age_cov = sort(rep(0:1,n_subjects/2))
     newd = add_covariate_to_data(d,age_cov,effect_size)
     
@@ -156,3 +160,6 @@ for(sigma_within in sigma_within_range){
   sim_results_age[[as.character(sigma_within)]] = m2
 }
 plot_ci_results(sim_results_main,xlab="Peak effect size")
+
+
+
