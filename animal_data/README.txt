@@ -1,6 +1,4 @@
 BIC parsed and qced PASS1A metadata. 
-Release: 07/01/2019.
-Comments: Joslin rats only
 
 We provide the metadata in a single large table called merged_dmaqc_data
   A tab-delimited text file and an RData file are vaillable
@@ -13,7 +11,7 @@ w1.w2 is the column type, which is the form from which it was taken (e.g., acute
 w3 is the feature/field name (e.g., distance)
 
 Notable useful columns are:
-  viallabel - can be used to map CAS data to the metadata
+  vial_label - can be used to map molecular data to the phenotypic metadata
   labelid,bid,pid - higher level ids (order is pid,bid,labelid,vialid)
   animal.registration.sex
   animal.key.anirandgroup - the experiment group of the rat

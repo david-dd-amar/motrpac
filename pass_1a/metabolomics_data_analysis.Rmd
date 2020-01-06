@@ -617,8 +617,17 @@ for(tissue in tissues){
       tb[1,1] = 0
       barplot(t(tb),
               legend=T,xlab="Number of targeted datasets with p<0.001",
-              ylab = "log2 number of metabolites",
+              ylab = "number of metabolites",
               main = paste(tissue,pair_name))
+      
+      write.table(
+        names(which(naive_analysis_tar>0 & naive_analysis_untar==0)),
+        quote = F,row.names = F
+      )
+      write.table(
+        names(which(naive_analysis_tar==0 & naive_analysis_untar>0)),
+        quote = F,row.names = F
+      )
   }
 }
 ```
@@ -684,6 +693,13 @@ for(tissue in tissues){
     tar_area = sum(significant_in=="Targeted") + inter_area
     untar_area = sum(significant_in=="Untargeted") + inter_area
     subt = paste("Not significant in both:",table(significant_in)["None"])
+    
+    ss = paste(sample(names(pvals_untar)[significant_in=="Targeted"])[1:10],collapse=";")
+    ss = gsub(paste(",",tissue,sep=""),"",ss)
+    ss
+    ss = paste(sample(names(pvals_untar)[significant_in=="Untargeted"])[1:10],collapse=";")
+    ss = gsub(paste(",",tissue,sep=""),"",ss)
+    ss
     
     venng = draw.pairwise.venn(tar_area,untar_area,inter_area,
             c("Targeted","Untargeted"),lty = rep("blank",2), 
@@ -770,6 +786,15 @@ for(lact_example in names(lact_res)[1:6]){
        main = lact_example,xlab = "Log fc",
        col = "blue",cex = 1.1)
 }
+
+curr_labels = gsub("plasma,","",
+                     meta_analysis_stats[["glutamate,plasma,0"]][[1]][,1])
+curr_labels = curr_labels[
+  meta_analysis_stats[["glutamate,plasma,0"]][[1]]$is_targeted==0]
+forest(meta_analysis_stats[["glutamate,plasma,0"]]$re_model_untar,
+        slab = curr_labels,
+       main = "glutamate,plasma,0",xlab = "Log fc",
+       col = "blue",cex = 1.1)
 
 ```
 
