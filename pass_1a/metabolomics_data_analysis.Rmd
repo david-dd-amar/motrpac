@@ -882,6 +882,8 @@ for(tissue in tissues){
   try(dir.create(tissue_dir))
   
   # Create the data tables (for sharing)
+  # Assumption: datasets with missing animals are rare and the
+  # first dataset in each tissue contains all 78 animals
   merged_norm_data_motrpac_name = c()
   merged_norm_data_all = c()
   tissue_datasets = names(metabolomics_processed_datasets)
@@ -910,6 +912,13 @@ for(tissue in tissues){
       normd$dataset = dataset
       unnamed_d = as.data.frame(unnamed_d)
       unnamed_d$dataset = dataset
+      
+      missing_samples = setdiff(colnames(merged_norm_data_motrpac_name),colnames(normd))
+      for(missing_samp in missing_samples){
+        normd[[missing_samp]] = NA
+        unnamed_d[[missing_samp]] = NA
+      }
+      
       if(length(merged_norm_data_motrpac_name)==0){
         merged_norm_data_motrpac_name = normd
       }
