@@ -171,8 +171,11 @@ for(nn1 in names(metabolomics_processed_datasets)){
   # take the covariates, ignore distances
   x_meta = unique(metabolomics_processed_datasets[[nn1]]$sample_meta_parsed)
   curr_covs = x_meta[,intersect(colnames(x_meta),biospec_cols[2])]
+  curr_order = metabolomics_processed_datasets[[nn1]]$sample_meta_raw[
+    rownames(x_meta),"sample_order"]
   curr_covs = data.frame(curr_covs,
-           sex=x_meta$animal.registration.sex)
+      sex=x_meta$animal.registration.sex,
+      sample_order = curr_order)
   
   # get the lm objects
   curr_models = list()
@@ -379,6 +382,7 @@ for(norm_pairs in tar_vs_untar_norm_pairs){
       # get the shared matebolites
       shared_metabolites = intersect(rownames(x),rownames(y))
       shared_metabolites = na.omit(shared_metabolites)
+      print(shared_metabolites[grepl("^Car",shared_metabolites)])
       if(length(shared_metabolites)==0){next}
       named2covered_shared_metabolites[[nn1]] = union(
         named2covered_shared_metabolites[[nn1]],
@@ -528,7 +532,7 @@ for(pair_name in names(norm_method2comparison_results)){
           curr_met_data[curr_met_data$is_targeted==0,"var"],
           method="FE"
         )})
-        meta_analysis_stats[[paste(metabolite,tissue,tp,sep=",")]] = 
+        meta_analysis_stats[[paste(metabolite,tissue,tp,sep=";")]] = 
           list(curr_met_data=curr_met_data,re_model1=re_model1,
             re_model2 = re_model2,re_model_tar=re_model_tar,
             re_model_untar = re_model_untar)
@@ -731,7 +735,7 @@ for(tissue in tissues){
     
     ss = paste(sample(names(pvals_untar)[significant_in=="Targeted"])[1:10],collapse=";")
     ss = gsub(paste(",",tissue,sep=""),"",ss)
-    ss
+    # ss
     ss = paste(sample(names(pvals_untar)[significant_in=="Untargeted"])[1:10],collapse=";")
     ss = gsub(paste(",",tissue,sep=""),"",ss)
     # ss
@@ -745,10 +749,7 @@ for(tissue in tissues){
                  top=paste(tissue,pair_name), bottom=subt)
   }
 }
-
-
 ```
-
 
 
 ## Comparison results: detailed analysis of the selected normalization
@@ -800,7 +801,6 @@ for(tar_dataset in names(single_metabolite_corrs)){
 ```
 
 
-
 ## Aggreement as a function of metabolite properties
 
 ```{r,out.height='50%',out.width='50%',message=FALSE,warning=FALSE}
@@ -830,7 +830,7 @@ betas_untar =
 
 # Add number of datasets per analysis, NAs, mean intensity/concentration etc.
 # Get from each dataset and each metabolite: mean/sd abudnance, num NAs
-analyzed_metabolites = sapply(names(meta_analysis_stats),function(x)strsplit(x,split=",")[[1]][1])
+analyzed_metabolites = sapply(names(meta_analysis_stats),function(x)strsplit(x,split=";")[[1]][1])
 analyzed_metabolites = unique(analyzed_metabolites)
 metabolite_features = lapply(analyzed_metabolites,function(x)list())
 names(metabolite_features) = analyzed_metabolites
@@ -843,7 +843,6 @@ for(dataset in names(metabolomics_processed_datasets)){
   rownames(rawd) = d$data_raw_rownames[rawdinds]
   # transform metabolite names to the motrpac comp name
   rawd = extract_by_comp_name_from_row_annot(rawd,d$row_annot)
-  
   arr = strsplit(pair_name,split = ";")[[1]]
   currnorm = arr[1]
   if(!d$is_targeted){currnorm = arr[2]}
@@ -881,8 +880,63 @@ try(dir.create(local_destination))
 for(tissue in tissues){
   tissue_dir = paste(local_destination,tissue,"/",sep="")
   try(dir.create(tissue_dir))
+  
+  # Create the data tables (for sharing)
+  merged_norm_data_motrpac_name = c()
+  merged_norm_data_all = c()
+  tissue_datasets = names(metabolomics_processed_datasets)
+  tissue_datasets = tissue_datasets[grepl(tissue,tissue_datasets)]
+  for(dataset in tissue_datasets){
+      d = metabolomics_processed_datasets[[dataset]]
+      arr = strsplit(pair_name,split = ";")[[1]]
+      currnorm = arr[1]
+      if(!d$is_targeted){currnorm = arr[2]}
+      normd = d$normalized_data[[currnorm]]
+      unnamed_d = normd
+      # transform metabolite names to the motrpac comp name
+      normd = extract_by_comp_name_from_row_annot(normd,d$row_annot)
+      # transform column names to bid
+      bid_x = merged_dmaqc_data[colnames(normd),"bid"]    
+      # step 1: merge samples from the same BID
+      if(length(unique(bid_x))!=length(bid_x)){
+        normd = aggregate_repeated_samples(normd,bid_x)
+        unnamed_d = aggregate_repeated_samples(unnamed_d,bid_x)
+      }
+      else{
+        colnames(normd) = bid_x
+        colnames(unnamed_d) = bid_x
+      }
+      normd = as.data.frame(normd)
+      normd$dataset = dataset
+      unnamed_d = as.data.frame(unnamed_d)
+      unnamed_d$dataset = dataset
+      if(length(merged_norm_data_motrpac_name)==0){
+        merged_norm_data_motrpac_name = normd
+      }
+      else{
+        merged_norm_data_motrpac_name = rbind(merged_norm_data_motrpac_name,
+                    normd[,colnames(merged_norm_data_motrpac_name)])
+      }
+      if(d$is_targeted){next}
+      if(length(merged_norm_data_all)==0){
+        merged_norm_data_all = unnamed_d
+      }
+      else{
+        merged_norm_data_all = rbind(merged_norm_data_all,
+                    unnamed_d[,colnames(merged_norm_data_all)])
+      }
+  }
+  
+  write.table(as.matrix(merged_norm_data_all),
+              file=paste(tissue_dir,"merged_norm_data_all.txt",sep=""),
+              quote=F,sep="\t",row.names = F,col.names = T)
+  write.table(as.matrix(merged_norm_data_motrpac_name),
+              file=paste(tissue_dir,"merged_norm_data_motrpac_name.txt",sep=""),
+              quote=F,sep="\t",row.names = F,col.names = T)
+  
   # Create the summary table for all analyses
   tissue_inds = grepl(tissue,names(targeted_diff_p))
+  if(sum(tissue_inds)==0){next}
   tissue_m = cbind(
     naive_analysis_tar[tissue_inds],
     naive_analysis_untar[tissue_inds],
@@ -899,27 +953,30 @@ for(tissue in tissues){
                          "tar:meta_analysis_p","untar:meta_analysis_p",
                          "tar:diff","untar:diff",
                          "tar_vs_untar:meta_analysis_diff_p")
-  rownames_arr = t(sapply(rownames(tissue_m),function(x)strsplit(x,split=",")[[1]]))
-  tissue_m = cbind(rownames_arr[,1],rownames_arr[,3],tissue_m)
+  rownames_arr = t(sapply(rownames(tissue_m),function(x)
+    strsplit(x,split=paste(";",tissue,";",sep=""))[[1]]))
+  tissue_m = cbind(rownames_arr[,1],rownames_arr[,2],tissue_m)
   colnames(tissue_m)[1:2] = c("metabolite","time_point")
   
   # Add mean intensities and NA counts
   met_stats = c()
   for(nn in rownames(tissue_m)){
-    arr = strsplit(nn,split=",")[[1]]
+    arr = strsplit(nn,split=paste(";",tissue,";",sep=""))[[1]]
     currmet = arr[1]
+    currmet %in% analyzed_metabolites
     currmet_info = metabolite_features[[currmet]]
     currmet_info = currmet_info[grepl(tissue,names(currmet_info))]
     currmet_info_tar = currmet_info[grepl(",tar",names(currmet_info))]
     currmet_info_untar = currmet_info[grepl(",untar",names(currmet_info))]
     untar_stand_mean = mean(sapply(currmet_info_untar,function(x)x[3]))
-    tar_mean = mean(sapply(currmet_info_tar,function(x)x[3]))
-    untar_cov = mean(sapply(currmet_info_untar,function(x)x[4]))
-    tar_cov = mean(sapply(currmet_info_tar,function(x)x[4]))
-    tar_nas = mean(sapply(currmet_info_tar,function(x)x[1]))
-    untar_nas = mean(sapply(currmet_info_untar,function(x)x[1]))
-    met_stats = rbind(met_stats,
-                      c(tar_mean,untar_stand_mean,tar_cov,untar_cov,tar_nas,untar_nas))
+    tar_mean = mean(sapply(currmet_info_tar,function(x)x[3]),na.rm=T)
+    untar_cov = mean(sapply(currmet_info_untar,function(x)x[4]),na.rm=T)
+    tar_cov = mean(sapply(currmet_info_tar,function(x)x[4]),na.rm=T)
+    tar_nas = mean(sapply(currmet_info_tar,function(x)x[1]),na.rm=T)
+    untar_nas = mean(sapply(currmet_info_untar,function(x)x[1]),na.rm=T)
+    v = c(tar_mean,untar_stand_mean,tar_cov,untar_cov,tar_nas,untar_nas)
+    if(any(is.na(v))){break}
+    met_stats = rbind(met_stats,v)
   }
   colnames(met_stats) = c(
     "tar:mean","untar:standardized_mean",
@@ -929,14 +986,11 @@ for(tissue in tissues){
   tissue_m = cbind(tissue_m,met_stats)
   tissue_m = as.data.frame(tissue_m)
   for(j in 2:ncol(tissue_m)){
-    tissue_m[[j]] = as.numeric(as.character(tissue_m))
+    tissue_m[[j]] = as.numeric(as.character(tissue_m[[j]]))
+    tissue_m[[j]] = format(tissue_m[[j]],digits = 4)
   }
-  write.table()
-
-  # Create the metabolite-level summary per tissue
-
-  # Create the data tables (for sharing)
-
+  write.table(as.matrix(tissue_m),file=paste(tissue_dir,"tar_vs_untar_de_analysis.txt",sep=""),
+              quote=F,sep="\t",row.names = F,col.names = T)
 }
 
 ```
