@@ -1,0 +1,733 @@
+---
+title: 'PASS1A DMAQC data: analysis by BIC'
+output:
+  pdf_document: 
+    number_sections: true
+  html_notebook: default
+---
+
+```{r,message=FALSE,warning=FALSE,results="hide"}
+# Set the working directory to the folder with the data
+source("~/Desktop/repos/motrpac-bic-norm-qc//tools/gcp_functions.R")
+
+# # official rlease - august 2019:
+# dmaqc_data_dir = "/Users/David/Desktop/MoTrPAC/data/pass_1a/dmaqc_pheno/official/3-Data_Sets/"
+# # dictionary path
+# dmaqc_dict_dir = "/Users/David/Desktop/MoTrPAC/data/pass_1a/dmaqc_pheno/official/1-Data_Dictionary/"
+
+# Take it directly from the buckets
+local_path = "/Users/David/Desktop/MoTrPAC/data/pass_1a/dmaqc_pheno/release_10032019/"
+system(paste("mkdir",local_path))
+# bucket = "gs://motrpac-portal-transfer-dmaqc/Official_DMAQC_TRANSFER/20190816_DMAQC_Transfer_PASS_1A.6M_1.00/"
+bucket = "gs://motrpac-portal-transfer-dmaqc/QC_EXPORT_DMAQC_Transfer_PASS_1A.6M_0.01/"
+dmaqc_data_dir = paste(local_path,"3-Data_Sets/",sep="")
+# dictionary path
+dmaqc_dict_dir = paste(local_path,"1-Data_Dictionary/",sep="")
+download_bucket_files_to_local_dir(bucket = paste(bucket,"3-Data_Sets/",sep=""),
+                                   local_path = dmaqc_data_dir)
+download_bucket_files_to_local_dir(bucket = paste(bucket,"1-Data_Dictionary/",sep=""),
+                                   local_path = dmaqc_dict_dir)
+
+all_csvs = list.files(dmaqc_data_dir,full.names = T) # get all files in dir
+all_csvs = all_csvs[grepl(".csv$",all_csvs)] # make sure we take csv only
+# read all files
+csv_data = list()
+for(fname in all_csvs){
+  csv_data[[fname]] = read.csv(fname,stringsAsFactors = F)
+}# sapply(csv_data,dim) # check the dimensions of the different datasets
+
+all_dict_csvs = list.files(dmaqc_dict_dir,full.names = T) # get all files in dir
+all_dict_csvs = all_dict_csvs[grepl(".csv$",all_dict_csvs)] # make sure we take csv only
+# read all files
+dict_data = list()
+for(fname in all_dict_csvs){
+  dict_data[[fname]] = read.csv(fname,stringsAsFactors = F)
+} 
+#sapply(dict_data,dim)
+```
+
+# Sanity check: Acute tests basic statistics
+
+```{r,out.height='50%',out.width='50%',message=FALSE,warning=FALSE}
+# Get the acute test data
+ac_test_data = csv_data[[which(grepl("Acute.Test",names(csv_data)))]]
+dim(ac_test_data)
+
+# check the time differences between start and end
+test_times = as.difftime(ac_test_data$t_complete) - as.difftime(ac_test_data$t_start)
+# table of the values: all except for on are 0.5 hours
+table(test_times)
+# Get the comment of the sample that is not 0.5h
+ac_test_data[test_times!=0.5,"comments"]
+ac_test_data$formatted_test_time = test_times
+```
+
+Next, we analyze the distances. We illustrate how these are a function of the shocks and sex/weight.
+
+```{r,out.height='50%',out.width='50%',message=FALSE,warning=FALSE}
+# convert the shock lengths to numbers (seconds)
+parse_shocktime<-function(x){
+  arr = strsplit(x,split=":")[[1]]
+  if(length(arr)<2){return(NA)}
+  return(as.numeric(arr[1])*60+as.numeric(arr[2]))
+}
+tmp_x = ac_test_data$howlongshock
+tmp_x = sapply(tmp_x, parse_shocktime)
+ac_test_data$howlongshock = tmp_x
+rm(tmp_x)
+
+# histogram of distances
+hist(ac_test_data$distance,col="blue",breaks=50,main = "Histogram of distances")
+
+# Correlation between distance and number of shocks
+# Get the indices of the samples with shock information -
+# these the animals that did the acute test
+timesshock_inds = !is.na(ac_test_data$timesshock)
+# create a new dataframe with the selected animals
+trained_animals_data = ac_test_data[timesshock_inds,]
+sp_corr = cor(trained_animals_data$distance,
+              trained_animals_data$timesshock,method="spearman")
+plot(trained_animals_data$distance,trained_animals_data$timesshock,
+     main=paste("Dist vs times shocked, rho=",format(sp_corr,digits = 2),sep=""),
+     pch=20,ylab="Times shock given",xlab="Distance",cex.main=1.1)
+
+# A "smarter" analysis: regression of the distance using shock info
+dist_lm  = lm(distance~timesshock+howlongshock+weight+days_start,
+              data=trained_animals_data)
+# Summary of the model, points to take: high R^2, significance of
+# the features
+summary(dist_lm)
+# We have some clear outliers:
+library(MASS)
+plot(studres(dist_lm),main="studentized residuals (lm)",ylab="residual")
+# Select the top outliers and look at their comments
+outliers = abs(studres(dist_lm)) > 2
+# how many outliers have we selected?
+sum(outliers)
+# their comments:
+trained_animals_data[outliers,"comments"]
+# Plot the fitted values of the linear regression vs.
+# the true distances
+plot(dist_lm$fitted.values,trained_animals_data$distance,lwd=2,
+     main="Fitted vs real values",ylab="Distances",xlab="Fitted distances")
+abline(0,1,col="red",lty=2,lwd=3)
+```
+
+# Site comparison
+
+In some versions of the DMAQC data there is a single site. In this case this section will not result in an output.
+
+```{r,out.height='50%',out.width='50%'}
+# Load additional information about the animals
+registr_data = csv_data[[which(grepl("Regist",names(csv_data)))]]
+rownames(registr_data) = as.character(registr_data$pid)
+# make the rownames in the test data comparable
+rownames(trained_animals_data) = trained_animals_data$pid
+# add sex to the trained animal data data frame
+sex_key = c("Female","Male")
+trained_animals_data$sex = sex_key[registr_data[rownames(trained_animals_data),"sex"]]
+
+# Map site Ids to their names
+site_names = c("910"="Joslin","930"="Florida")
+trained_animals_data$site = site_names[as.character(trained_animals_data$siteID)]
+
+# Sanity check: the numbers should be the same for both sites
+table(ac_test_data$siteID)
+table(trained_animals_data$site,trained_animals_data$sex)
+
+run_wilcox<-function(x1,x2){
+  return(wilcox.test(x1[x2==x2[1]],x1[x2!=x2[1]])$p.value)
+}
+# Compare the distances, shocks, and weight (if we have multiple site)
+if (length(unique(ac_test_data$siteID))>1){
+  par(mar=c(10,4,4,4))
+  # Site only
+  p_dist = run_wilcox(trained_animals_data$distance,trained_animals_data$site)
+  boxplot(distance~site,data=trained_animals_data,col="cyan",ylab="Distance",
+        main=paste("Site vs. distance, p<",format(p_dist,digits = 2)),
+        cex.main=1,las=2)
+  p_timesshock = run_wilcox(trained_animals_data$timesshock,trained_animals_data$site)
+  boxplot(timesshock~site,data=trained_animals_data,col="red",ylab="Times shocked",
+        main=paste("Site vs. times shocked, p<",format(p_timesshock,digits = 3)),
+        cex.main=1,las=2)
+  p_w = run_wilcox(trained_animals_data$weight,trained_animals_data$site)
+  boxplot(weight~site,data=trained_animals_data,col="cyan",ylab="Weight",
+        main=paste("Site vs. weight, p=",format(p_w,digits = 2)),
+        cex.main=1,las=2)
+  # Site and sex
+  par(mar=c(10,4,4,4))
+  boxplot(distance~site+sex,data=trained_animals_data,col="cyan",ylab="Distance",
+        main="Site vs. distance",cex.main=1,las=2)
+  boxplot(timesshock~site+sex,data=trained_animals_data,col="red",ylab="Times shocked",
+        main="Site vs. times shocked",cex.main=1,las=2)
+  boxplot(weight~site+sex,data=trained_animals_data,col="cyan",ylab="Weight",
+        main="Site vs. weight",cex.main=1,las=2)
+
+  # Regress time shocked and distance vs. site and sex
+  summary(lm(timesshock~site+sex,data=trained_animals_data))
+  summary(lm(distance~site+sex,data=trained_animals_data))  
+  }
+
+```
+
+# Sanity checks: Biospecimen data
+
+```{r, out.height='50%',out.width='50%'}
+# Analysis of biospecimen data
+spec_data = csv_data[[which(grepl("Specimen.Processing.csv",names(csv_data)))]]
+rownames(spec_data) = spec_data$labelid
+# Parse the times and compute the difference between the freeze time and 
+# the collection time
+time_to_freeze1 = as.difftime(spec_data$t_freeze,units = "mins") -
+  as.difftime(spec_data$t_collection,units="mins")
+# For some samples we have the edta spin time instead of the collection
+# time, use these when there are no other options
+time_to_freeze2 = as.difftime(spec_data$t_freeze,units = "mins") -
+  as.difftime(spec_data$t_edtaspin,units="mins")
+time_to_freeze = time_to_freeze1
+# Fill in the NAs by taking the time between the edta spin and the freeze
+table(is.na(time_to_freeze1),is.na(time_to_freeze2))
+time_to_freeze[is.na(time_to_freeze1)] = time_to_freeze2[is.na(time_to_freeze1)]
+spec_data$time_to_freeze = as.numeric(time_to_freeze)
+spec_data$time_to_freeze_from_collection = as.numeric(time_to_freeze1)
+spec_data$time_to_freeze_from_edta_spin = as.numeric(time_to_freeze2)
+hist(spec_data$time_to_freeze,breaks = 100)
+
+# Add site by name
+site_names = c("910"="Joslin","930"="Florida")
+spec_data$site = site_names[as.character(spec_data$siteid)]
+table(spec_data$site)
+
+inds = !is.na(time_to_freeze1)
+inds = grepl("adipose",spec_data$sampletypedescription,ignore.case = T)
+inds = grepl("heart",spec_data$sampletypedescription,ignore.case = T) | 
+  grepl("liver",spec_data$sampletypedescription,ignore.case = T) |
+  grepl("colon",spec_data$sampletypedescription,ignore.case = T) | 
+  grepl("vastus",spec_data$sampletypedescription,ignore.case = T)
+# Using site info:
+# Here we use an interaction term and not addition as the R^2 is >2 times
+# greater this way
+if (length(unique(spec_data$site))>1){
+  par(mar=c(10,2,2,2))
+  boxplot(time_to_freeze~site:sampletypedescription,data=spec_data[inds,],
+        ylab="Time to freeze",las=2)  
+  summary(lm(time_to_freeze~sampletypedescription:site,data=spec_data[inds,]))
+}
+# A single site
+if (length(unique(spec_data$site))==1){
+  par(mar=c(10,2,2,2))
+  boxplot(time_to_freeze~sampletypedescription,data=spec_data[inds,],
+        ylab="Time to freeze",las=2)  
+  summary(lm(time_to_freeze~sampletypedescription,data=spec_data[inds,]))
+}
+
+```
+
+# Format the metadata table according to vial ids
+
+We now use DMAQC's mapping of label ids to vial ids and use it to generate a single metadata table that we can share with other sites.
+
+```{r,out.height='50%',out.width='50%'}
+# Helper function for merging columns from data2 into data1
+# The function makes sure there is no column duplications when
+# adding information from data2 into data1
+merge_avoid_col_dup<-function(data1,data2,by_col){
+  data2_cols = c(by_col,setdiff(colnames(data2),colnames(data1)))
+  res = merge(data1, data2[,data2_cols], by=by_col)
+  return(res)
+}
+# Note that Specimen.Processing is intentionally the last added dataset
+# We merge by PIDs so all data before that are animal-level data
+formnames = c("Acute.Test","Animal.Familiarization",
+              "Animal.Key","Animal.Registration",
+              "Specimen.Collection","Specimen.Processing",
+              "Calculated.Variables")
+merged_dmaqc_data = c()
+for(currname in formnames){
+  form_ind = which(grepl(currname,names(csv_data)))
+  if(length(form_ind)==0){
+    print(paste("Error, missing form:",currname))
+  }
+  curr_data = csv_data[[form_ind]]
+  # make sure we do not change the names of the id columns
+  colnames(curr_data) = tolower(colnames(curr_data))
+  columns_to_append = !is.element(colnames(curr_data),
+              set = c("bid","pid","labelid","vialid","viallabel"))
+  colnames(curr_data)[columns_to_append] = 
+    paste(currname,colnames(curr_data)[columns_to_append],sep=".")
+  colnames(curr_data) = tolower(colnames(curr_data))
+
+  if(length(merged_dmaqc_data)==0){
+    merged_dmaqc_data = curr_data
+  }
+  else{
+    # get the merge column - if the data has a label id then use it
+    # otherwise use the animal id
+    by_col = "pid"
+    if(is.element("labelid",colnames(merged_dmaqc_data)) &&
+       is.element("labelid",colnames(curr_data))){
+          by_col = "labelid"
+     }
+    print(paste("merging in table:",currname,", by col:", by_col))
+    merged_dmaqc_data = merge_avoid_col_dup(merged_dmaqc_data,curr_data,by_col)
+  }
+}
+print("Merged animal and biospecimen data tables, dim is:")
+print(dim(merged_dmaqc_data))
+
+# Now map DMAQC's label ids to vialids
+# Sort to make the most up to date file the first in the order
+mapping_files = sort(all_csvs[grepl("BICLabelData",all_csvs)],decreasing = T) 
+mapping_info = csv_data[[mapping_files[1]]]
+colnames(mapping_info) = tolower(colnames(mapping_info))
+# Not all samples in the specimen data are necessarily covered in the mapping
+# file. The mapping file contains info only about samples that were shipped
+# to CAS. As can be seen here:
+table(is.element(merged_dmaqc_data$labelid,set=mapping_info$labelid))
+# We therefore need to extract the intersection:
+shared_labelids = intersect(merged_dmaqc_data$labelid,mapping_info$labelid)
+merged_dmaqc_data = merged_dmaqc_data[
+  is.element(merged_dmaqc_data$labelid,set = shared_labelids),]
+mapping_info = mapping_info[
+  is.element(mapping_info$labelid,set = shared_labelids),]
+print("Merged animal and biospecimen data tables, new dim is:")
+print(dim(merged_dmaqc_data))
+# We also have a many to one mapping from vial ids to labels, we 
+# merge the tables to avoid information loss
+merged_dmaqc_data = merge_avoid_col_dup(merged_dmaqc_data,mapping_info,"labelid")
+print("Merged animal and biospecimen data tables, after adding vialids, new dim is:")
+print(dim(merged_dmaqc_data))
+
+#####
+#####
+# Now put the dictionary in one file as well
+#####
+#####
+merged_column_dictionary = c()
+cols_to_take = c("Field.Name","Data.Type",
+                 "Alias..Field.Name.description.",
+                 "Categorical.Values",
+                 "Categorical.Definitions",
+                 "Continous.Range.Min",
+                 "Continous.Range.Max")
+for(currname in formnames){
+  tmp_dict_data = dict_data[[which(grepl(currname,names(dict_data)))]]
+  # take the required columns, feel in missing ones if necessary
+  tmp_dict_data = tmp_dict_data[,intersect(colnames(tmp_dict_data),cols_to_take)]
+  for(missing_col in setdiff(cols_to_take,colnames(tmp_dict_data))){
+    tmp_dict_data[[missing_col]] = rep(NA,nrow(tmp_dict_data))
+  }
+  # make sure we do not change the names of the id columns
+  tmp_dict_data[,1] = tolower(tmp_dict_data[,1])
+  rows_to_append = !is.element(tmp_dict_data[,1],
+              set = c("bid","pid","labelid","vialid","viallabel"))
+  tmp_dict_data[rows_to_append,1] = 
+    paste(tolower(currname),tmp_dict_data[rows_to_append,1],sep=".")
+  tmp_dict_data$Form.prefix = rep(currname,nrow(tmp_dict_data))
+  
+  merged_column_dictionary = rbind(merged_column_dictionary,tmp_dict_data)
+}
+
+# Final checks of the data
+dim(merged_dmaqc_data)
+merged_column_dictionary = merged_column_dictionary[is.element(
+  merged_column_dictionary[,1],set=colnames(merged_dmaqc_data)
+  ),]
+dim(merged_column_dictionary)
+merged_column_dictionary = unique(merged_column_dictionary)
+dim(merged_column_dictionary)
+
+```
+
+# Compare to the DMAQC computed scores
+
+As requested by Ashley (email from June 7 2019), the following computed fields were added by DMQAQC:
+
+1. Weight gain before acute test: (Animal_Acute_Test.weight – Animal_Registration.weight)
+2. Lactate changes due to acute exercise: (Aminal_Acute_Test.endblood - Aminal_Acute_Test.beginblood)
+3. EDTA sample collection time: (Animal_Specimen_Collection.t_edtafill - Aminal_Acute_Test.t_complete)
+4. Time of death after acute test: (Animal_Specimen_Collection.t_death - Aminal_Acute_Test.t_complete)
+5. Sample frozen time after acute test: (Animal_Sample_Processing.t_freeze - Aminal_Acute_Test.t_complete)
+
+Below, we show that our merged table and computations in R result in the same numbers.
+
+```{r, out.height='50%',out.width='50%'}
+# Read the DMAQC calculated fields (do not use the prev ones from the merge
+# for an extra QC)
+calc_data_file = all_csvs[grepl("Calculated.Variables",all_csvs)]
+calc_data = read.csv(calc_data_file)
+colnames(calc_data) = tolower(colnames(calc_data))
+rownames(calc_data) = calc_data$labelid
+# Extract the relevant columns from our merged dataset
+cols_for_analysis = list(labelid = "labelid",
+    wgt_gain_before_acute = c("acute.test.weight","animal.registration.weight"),
+    lactate_change_dueto_acute = c("acute.test.endblood","acute.test.beginblood"),
+    edta_coll_time  = c("specimen.collection.t_edtafill","acute.test.t_complete"),
+    # taking the difference between the following intervals is wrong because
+    # t_complete and t_death/t_freeze may be on different days
+    deathtime_after_acute = c("specimen.collection.t_death","acute.test.t_complete"),
+    frozetime_after_acute = c("specimen.processing.t_freeze","acute.test.t_complete"))
+
+# Go over each score and compare the two versions
+tp_info = unique(merged_dmaqc_data[,c("labelid","animal.key.anirandgroup")])
+rownames(tp_info) = as.character(tp_info[,1])
+for(dmaqc_col in names(cols_for_analysis)[-1]){
+  our_colls = cols_for_analysis[[dmaqc_col]]
+  bic_version = unique(merged_dmaqc_data[,c("labelid",our_colls)])
+  rownames(bic_version) = bic_version[,1]
+  dmaqc_version = calc_data[rownames(bic_version),c("labelid",dmaqc_col)]
+  if(mode(bic_version[,2])=="character"){
+    bic_version_score = as.difftime(bic_version[,2])-as.difftime(bic_version[,3])
+    bic_version_score = as.numeric(bic_version_score)*60*60
+  }
+  else{
+    bic_version_score = bic_version[,2]-bic_version[,3]
+  }
+  names(bic_version_score) = rownames(bic_version)
+
+  plot(x=bic_version_score,y=dmaqc_version[,2],pch=20,cex=1.2,col="blue",
+       xlab="BICs computation",ylab="DMAQC computation",
+       main = colnames(dmaqc_version)[2])
+  abline(0,1,lty=2)
+  boxplot(bic_version_score~tp_info[names(bic_version_score),2],
+          ylab = "",xlab="",
+          main = colnames(dmaqc_version)[2],las=2,mar=c(10,5,5,5))
+}
+
+print("Now go over the columns, but this time take our version from the merged data")
+colnames(calc_data) = tolower(colnames(calc_data))
+for(feature_name in colnames(calc_data)[-c(1:3)]){
+  bic_feature_name = paste("calculated.variables.",feature_name,sep="")
+  bic_version = unique(merged_dmaqc_data[,c("labelid",bic_feature_name)])
+  rownames(bic_version) = as.character(bic_version[,1])
+  dmaqc_version = calc_data[rownames(bic_version),c("labelid",feature_name)]
+  plot(bic_version[,2],dmaqc_version[,2],pch=20,cex=1.2,col="blue",
+       xlab="BICs parsed data",ylab="DMAQC computation",
+       main = colnames(dmaqc_version)[2])
+  abline(0,1,lty=2)
+}
+
+```
+
+# Correlations with time points
+
+Based on the analyses above we know that the distances are mostly correlated with the shock length and weight/sex. We now plot the achieved distances as a function of the shock data but colored by the time point of each animal in the exercise group.
+
+```{r,out.height='50%',out.width='50%'}
+library(ggplot2)
+parse_timepoint<-function(x){
+  arrs = strsplit(x,split=" ")
+  tps = sapply(arrs,function(x)x[3])
+  tps = as.numeric(tps)
+  tps[is.na(tps)]=0 # IPEs are marked as 0
+  # tps[grepl("IPE",x)] = 0
+  return(tps)
+}
+
+# colnames(merged_dmaqc_data)[grepl("sex",colnames(merged_dmaqc_data))]
+merged_dmaqc_data$animal.key.timepoint = parse_timepoint(
+  merged_dmaqc_data[,"animal.key.anirandgroup"])
+merged_dmaqc_data$animal.key.is_control = grepl("control",
+      merged_dmaqc_data[,"animal.key.anirandgroup"],ignore.case = T)
+
+# Reduce the data by label ids to avoid duplications
+merged_dmaqc_data$acute.test.howlongshock_seconds = sapply(
+  merged_dmaqc_data$acute.test.howlongshock,
+  parse_shocktime)
+
+# Add the parsed shock time into the dictionary
+merged_column_dictionary = rbind(merged_column_dictionary,
+  c("acute.test.howlongshock_seconds",
+    " how much time was spent on the shocker grid in seconds",
+    "numeric","","",
+    min(merged_dmaqc_data$acute.test.howlongshock_second,na.rm=T),
+    max(merged_dmaqc_data$acute.test.howlongshock_second,na.rm=T),
+    "calculated.variables")
+)
+
+inds = !is.na(merged_dmaqc_data$acute.test.howlongshock_seconds)
+df = merged_dmaqc_data[inds,c("bid","acute.test.distance",
+                              "acute.test.howlongshock_seconds",
+                              "animal.key.timepoint",
+                              "animal.registration.sex")]
+df = unique(df)
+print(paste("Number of bids in the reduced data.",nrow(df)))
+
+# Marginal correlation
+rho = cor(df$acute.test.howlongshock_seconds,
+          df$acute.test.distance)
+rho = format(rho,digits = 3)
+
+# A simple 2D plot
+ggplot(df,
+       aes(x=`acute.test.distance`, y=acute.test.howlongshock_seconds,
+           shape=as.factor(animal.registration.sex), color=as.factor(animal.key.timepoint))) + 
+  geom_point(size=2) + ggtitle(paste("Distance vs. Shock length (+time point), rho=",rho)) + 
+  theme(plot.title = element_text(hjust = 0.5))
+
+# Look at the linear regression, do we see a correlation between time
+# and distance?
+dist_lm2 = lm(acute.test.distance~acute.test.howlongshock_seconds+
+                as.factor(animal.key.timepoint)+animal.registration.sex,data=df)
+print("No significant linear association between the time points and distance:")
+# summary(dist_lm2)
+```
+
+## QC tests and time definitions
+
+```{r}
+merged_dmaqc_data$tissue = merged_dmaqc_data$sampletypedescription
+
+# Define three time intervals:
+# I1: complete to death
+# I2: death to collection
+# I3: collection to freeze
+# These are defined in hours:
+I1 = as.difftime(merged_dmaqc_data$specimen.collection.t_death) -
+    as.difftime(merged_dmaqc_data$acute.test.t_complete)
+I2 = as.difftime(merged_dmaqc_data$specimen.processing.t_collection) -
+    as.difftime(merged_dmaqc_data$specimen.collection.t_death)
+I3 = as.difftime(merged_dmaqc_data$specimen.processing.t_freeze) -
+    as.difftime(merged_dmaqc_data$specimen.processing.t_collection)
+I1 = as.numeric(I1);I2 = as.numeric(I2);I3 = as.numeric(I3)
+daysdiff = merged_dmaqc_data$acute.test.days_visit - 
+    merged_dmaqc_data$acute.test.days_start
+I1 = I1 + 24*daysdiff
+# Change to minutes
+I1 = I1*60
+I2 = I2*60
+I3 = I3*60
+merged_dmaqc_data$calculated.variables.time_complete_to_death_min = I1
+merged_dmaqc_data$calculated.variables.time_death_to_collect_min = I2
+merged_dmaqc_data$calculated.variables.time_collect_to_freeze_min = I3
+# define the general time to freeze variable
+merged_dmaqc_data$calculated.variables.time_to_freeze = 
+  merged_dmaqc_data$calculated.variables.time_death_to_collect_min + 
+  merged_dmaqc_data$calculated.variables.time_collect_to_freeze_min
+
+# Add to dictionary
+merged_column_dictionary = rbind(merged_column_dictionary,
+  c("calculated.variables.time_complete_to_death_min",
+    "time in minutes from exercise test completion to death",
+    "numeric","","",
+    min(I1,na.rm=T),max(I1,na.rm=T),
+    "calculated.variables")
+)
+merged_column_dictionary = rbind(merged_column_dictionary,
+  c("calculated.variables.time_death_to_collect_min",
+    "time in minutes from death to the sample collection",
+    "numeric","","",
+    min(I2,na.rm=T),max(I2,na.rm=T),
+    "calculated.variables")
+)
+merged_column_dictionary = rbind(merged_column_dictionary,
+  c("calculated.variables.time_collect_to_freeze_min",
+    "time in minutes from sample collection to sample freeze",
+    "numeric","","",
+    min(I3,na.rm=T),max(I3,na.rm=T),
+    "calculated.variables")
+)
+merged_column_dictionary = rbind(merged_column_dictionary,
+  c("calculated.variables.time_to_freeze",
+    "time in minutes from death to sample freeze",
+    "numeric","","",
+    min(I3+I2,na.rm=T),max(I3+I2,na.rm=T),
+    "calculated.variables")
+)
+
+# look at time vs sex diffs in each tissue
+tmpx = cbind(
+  merged_dmaqc_data$labelid,
+  merged_dmaqc_data$specimen.processing.sampletypedescription,
+  merged_dmaqc_data$calculated.variables.time_complete_to_death_min,
+  merged_dmaqc_data$calculated.variables.time_death_to_collect_min,
+  merged_dmaqc_data$calculated.variables.time_collect_to_freeze_min,
+  merged_dmaqc_data$animal.registration.sex,
+  merged_dmaqc_data$animal.key.timepoint,
+  merged_dmaqc_data$acute.test.weight
+  
+)
+colnames(tmpx) = c(
+  "labelid",
+  "tissue",
+  "time_complete_to_death",
+  "time_death_to_collect",
+  "time_collect_to_freeze",
+  "sex",
+  "timepoint",
+  "weight"
+)
+tmpx = data.frame(tmpx)
+for(j in 3:ncol(tmpx)){tmpx[[j]]=as.numeric(as.character(tmpx[[j]]))}
+tissue_sex_pvals = c()
+for(tissue in unique(tmpx$tissue)){
+  df = tmpx[tmpx$tissue==tissue,]
+  df = unique(df)
+  # print(dim(df))
+  df$sex = df$sex-1
+  
+  if(any(is.na(df$time_collect_to_freeze))){next}
+  if(length(unique(df$sex))<2){next}
+  
+  curr_lm = summary(glm(
+    sex~time_collect_to_freeze + time_death_to_collect,data=df,
+    family = "binomial"))
+  pval = curr_lm$coefficients[2,4]
+  beta = curr_lm$coefficients[2,2]
+  
+  tissue_sex_pvals = rbind(tissue_sex_pvals,
+     c(curr_lm$coefficients[2,4],curr_lm$coefficients[3,4],nrow(df)))
+  rownames(tissue_sex_pvals)[nrow(tissue_sex_pvals)] = tissue
+  print(paste(tissue,beta,pval))
+}
+
+tissue_log_ps = -log(tissue_sex_pvals[,1:2],base=10)
+colnames(tissue_log_ps) = c(
+  "collect_to_freeze",
+  "death_to_collect"
+)
+plt = barplot(t(tissue_log_ps),beside = T,xaxt="n",legend=T)
+text(colMeans(plt), par("usr")[3], labels = rownames(tissue_log_ps), 
+     srt = 45, adj = c(1.1,1.1), xpd = T, cex=0.6)
+abline(h = 2,lwd=2,col="red",lty=2)
+
+# for(tissue in unique(tmpx$tissue)){
+#   df = tmpx
+#   df = df[grepl(tissue,df$tissue,ignore.case = T),]
+#   if(all(is.na(df$time_collect_to_freeze))){next}
+#   boxplot(time_death_to_collect~sex,data=df,main=tissue)
+# }
+```
+
+```{r,eval=FALSE,echo=FALSE}
+# # reproduce the results directly from the specimen data
+# spec_data = read.csv("~/Desktop/MoTrPAC/data/pass_1a/dmaqc_pheno/QC_EXPORT_TXFR0.01_1A.6M_DS_MoTrPAC.PASS_Animal.Specimen.Processing.csv",stringsAsFactors = F)
+# spec_collection = read.csv("~/Desktop/MoTrPAC/data/pass_1a/dmaqc_pheno/QC_EXPORT_TXFR0.01_1A.6M_DS_MoTrPAC.PASS_Animal.Specimen.Collection.csv",stringsAsFactors = F)
+# animal_data = read.csv("~/Desktop/MoTrPAC/data/pass_1a/dmaqc_pheno/QC_EXPORT_TXFR0.01_1A.6M_DS_MoTrPAC.PASS_Animal.Registration.csv",stringsAsFactors = F)
+# acute_data = read.csv("~/Desktop/MoTrPAC/data/pass_1a/dmaqc_pheno/QC_EXPORT_TXFR0.01_1A.6M_DS_MoTrPAC.PASS_Animal.Acute.Test.csv",stringsAsFactors = F)
+# animal_data2 = read.csv("~/Desktop/MoTrPAC/data/pass_1a/dmaqc_pheno/QC_EXPORT_TXFR0.01_1A.6M_DS_MoTrPAC.PASS_Animal.Key.csv",stringsAsFactors = F)
+# # Limit to gastroc data
+# spec_data = spec_data[grepl("gastroc",spec_data$sampletypedescription,ignore.case = T),]
+# # Make all ids PIDs
+# rownames(spec_data) = as.character(spec_data$pid)
+# rownames(animal_data) = as.character(animal_data$pid)
+# rownames(spec_collection) = as.character(spec_collection$pid)
+# rownames(acute_data) = as.character(acute_data$pid)
+# rownames(animal_data2) = animal_data2$pid
+# # Intersection 
+# inds = intersect(rownames(spec_data),rownames(animal_data))
+# spec_data = spec_data[inds,]
+# animal_data = animal_data[inds,]
+# acute_data = acute_data[inds,]
+# spec_collection = spec_collection[inds,]
+# animal_data2 = animal_data2[inds,]
+# 
+# # three time intervals:
+# # I1: complete to death
+# # I2: death to collection
+# # I3: collection to freeze
+# I1 = as.difftime(spec_collection$t_death) - as.difftime(acute_data$t_complete)
+# I2 = as.difftime(spec_data$t_collection) - as.difftime(spec_collection$t_death)
+# I3 = as.difftime(spec_data$t_freeze)-as.difftime(spec_data$t_collection)
+# I1 = as.numeric(I1)
+# I2 = as.numeric(I2)
+# I3 = as.numeric(I3)
+# sex = animal_data$sex
+# daysdiff = acute_data$days_visit - acute_data$days_start
+# I1 = I1 + 24*daysdiff
+# # Change to minutes
+# I1 = I1*60
+# I2 = I2*60
+# I3 = I3*60
+# 
+# group = animal_data2$ANIRandGroup
+# group = gsub("Control","C",group)
+# group = gsub("Exercise","E",group)
+# 
+# # Sex vs times
+# par(mfrow=c(1,3))
+# boxplot(log(I1)~sex,main = "I1: death-complete",ylab = "minutes(log)",xlab = "sex")
+# boxplot(I2~sex,main = "I2: collection-death",xlab = "sex",ylab="minutes")
+# boxplot(I3~sex,main = "I3: freeze-collection",xlab = "sex",ylab="minutes")
+# # Study group vs times
+# par(mfrow=c(3,1))
+# boxplot(log(I1)~group,main = "I1: death-complete",las=2,xlab="",ylab="minutes(log)")
+# boxplot(I2~group,main = "I2: collection-death",las=2,xlab="",ylab="minutes")
+# boxplot(I3~group,main = "I3: freeze-collection",las=2,xlab="",ylab="minutes")
+# 
+# kruskal.test(I1,group)$p.value
+# kruskal.test(I2,group)$p.value
+# kruskal.test(I3,group)$p.value
+
+```
+
+# Save the merged datasets in the cloud
+
+```{r}
+# Solve some formatting issues and columns that are redundant or wrong
+merged_column_dictionary = as.matrix(merged_column_dictionary)
+# All NAs are ""
+merged_column_dictionary[is.na(merged_column_dictionary)] = ""
+# Remove duplications
+merged_column_dictionary = unique(merged_column_dictionary)
+# Add the vial label
+merged_column_dictionary = rbind(
+  c("viallabel","The primary analyzed sample id, corresponds to a row in the data table",
+    "varchar",NA,NA,NA,NA,""),
+  merged_column_dictionary
+)
+# remove: deathtime_after_acute and and frozetime_after_acute
+ind1 = which(grepl("deathtime_after_acute",merged_column_dictionary[,1]))
+ind2 = which(grepl("deathtime_after_acute",colnames(merged_dmaqc_data)))
+merged_column_dictionary = merged_column_dictionary[-ind1,]
+merged_dmaqc_data = merged_dmaqc_data[,-ind2]
+ind1 = which(grepl("frozetime_after_acute",merged_column_dictionary[,1]))
+ind2 = which(grepl("frozetime_after_acute",colnames(merged_dmaqc_data)))
+merged_column_dictionary = merged_column_dictionary[-ind1,]
+merged_dmaqc_data = merged_dmaqc_data[,-ind2]
+
+# To see the bucket list
+# gsutil ls -p motrpac-portal-dev
+currdate = Sys.Date()
+txtname = paste("merged_dmaqc_data",currdate,".txt",sep="")
+rdataname = paste("merged_dmaqc_data",currdate,".RData",sep="")
+dictfname = paste("merged_column_dictionary",currdate,".txt",sep="")
+write.table(merged_dmaqc_data,file=txtname,
+            quote = F,sep="\t",row.names = F)
+save(merged_dmaqc_data,file=rdataname)
+write.table(merged_column_dictionary,file=dictfname,
+            quote = F,sep="\t",row.names = F)
+system(paste("~/google-cloud-sdk/bin/gsutil cp", txtname,
+             "gs://bic_data_analysis/pass1a/pheno_dmaqc/"))
+system(paste("~/google-cloud-sdk/bin/gsutil cp", rdataname,
+             "gs://bic_data_analysis/pass1a/pheno_dmaqc/"))
+system(paste("~/google-cloud-sdk/bin/gsutil cp", dictfname,
+             "gs://bic_data_analysis/pass1a/pheno_dmaqc/"))
+system(paste("~/google-cloud-sdk/bin/gsutil cp", 
+             "~/Desktop/repos/motrpac/animal_data/README.txt",
+             "gs://bic_data_analysis/pass1a/pheno_dmaqc/"))
+
+system(paste("rm", txtname))
+system(paste("rm", rdataname))
+system(paste("rm", dictfname))
+```
+
+## Compare to the older version of the data
+
+```{r}
+olderversion = 
+  load_from_bucket("merged_dmaqc_data.RData",
+                   bucket = "gs://bic_data_analysis/pass1a/pheno_dmaqc/")
+olderversion = olderversion[[1]]
+setdiff(colnames(merged_dmaqc_data),colnames(olderversion))
+setdiff(colnames(olderversion),colnames(merged_dmaqc_data))
+shared_cols = intersect(colnames(olderversion),colnames(merged_dmaqc_data))
+viallabels = as.character(merged_dmaqc_data$viallabel)
+rownames(merged_dmaqc_data) = as.character(merged_dmaqc_data$viallabel)
+rownames(olderversion) = as.character(olderversion$viallabel)
+diffs = olderversion[viallabels,shared_cols] != merged_dmaqc_data[viallabels,shared_cols]
+table(diffs)
+diff_by_col = colSums(diffs,na.rm = T)
+diff_by_col[diff_by_col>0]
+```
+

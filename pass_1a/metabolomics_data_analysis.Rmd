@@ -15,17 +15,29 @@ In this document we present the joint analysis of the PASS1A metabolomics datase
 Load the data from the cloud, including: phenotypic data, metabolomic datasets, and metabolomics dictionary.
 
 ```{r,results='hide',message=FALSE,warning=FALSE}
-source("~/Desktop/repos/motrpac-bic-norm-qc/tools/supervised_normalization_functions.R")
+# load the data and functions to the session
+
+# helper functions for unsupervised data matrix normalization
 source("~/Desktop/repos/motrpac-bic-norm-qc/tools/unsupervised_normalization_functions.R")
+# basic functions for reading data objects from GCP
 source("~/Desktop/repos/motrpac-bic-norm-qc/tools/gcp_functions.R")
-source("~/Desktop/repos/motrpac-bic-norm-qc/tools/association_analysis_methods.R")
+# helper functions for data reformat/reshape
 source("~/Desktop/repos/motrpac-bic-norm-qc/tools/data_aux_functions.R")
+# helper functions for reading and checking the metabolomics data from the cloud
+source("~/Desktop/repos/motrpac-bic-norm-qc/tools/metabolomics_data_parsing_functions.R")
+# functions for association analysis
+source("~/Desktop/repos/motrpac-bic-norm-qc/tools/association_analysis_methods.R")
+# functions for classification/regression and cross-validation
 source("~/Desktop/repos/motrpac/tools/prediction_ml_tools.R")
+
 library(randomForest) # for classification tests
+library(VennDiagram) # for overlaps
+require(gridExtra)
+library(corrplot)
 
 # Load the dmaqc data
 merged_dmaqc_data =  load_from_bucket("merged_dmaqc_data2019-10-15.RData",
-    "gs://bic_data_analysis/pass1a/pheno_dmaqc/",F)
+    "gs://bic_data_analysis/pass1a/pheno_dmaqc/",T)
 merged_dmaqc_data = merged_dmaqc_data[[1]]
 rownames(merged_dmaqc_data) = as.character(merged_dmaqc_data$vial_label)
 # define the tissue variable
@@ -33,20 +45,6 @@ merged_dmaqc_data$tissue = merged_dmaqc_data$sampletypedescription
 # define the time to freeze variable
 merged_dmaqc_data$time_to_freeze = merged_dmaqc_data$calculated.variables.time_death_to_collect_min + 
   merged_dmaqc_data$calculated.variables.time_collect_to_freeze_min
-
-# col time vs. control
-# df = data.frame(
-#   bid = merged_dmaqc_data$bid,
-#   edta_col_time = merged_dmaqc_data$calculated.variables.edta_coll_time,
-#   time_to_freeze = merged_dmaqc_data$time_to_freeze,
-#   is_control = merged_dmaqc_data$animal.key.is_control,
-#   tp = merged_dmaqc_data$animal.key.timepoint,
-#   tissue = merged_dmaqc_data$specimen.processing.sampletypedescription
-# )
-# df = unique(df)
-# boxplot(edta_col_time/3600 ~ is_control,df)
-# boxplot(edta_col_time/3600 - tp ~ is_control,df)
-# wilcox.test(edta_col_time/3600 ~ is_control,df)
 
 # blood freeze times
 blood_samples = 
@@ -61,317 +59,277 @@ time_to_freeze = merged_dmaqc_data$time_to_freeze[blood_samples] =
 
 # Load our parsed metabolomics datasets
 metabolomics_bucket_obj = load_from_bucket(
-  file = "metabolomics_parsed_datasets_pass1a_external1.RData",
+  file = "metabolomics_parsed_datasets_pass1a_external_v2_04112020.RData",
   bucket = "gs://bic_data_analysis/pass1a/metabolomics/")
 metabolomics_parsed_datasets = metabolomics_bucket_obj$metabolomics_parsed_datasets
 
+# destination for selected figures, tables and RData files
+local_destination = "~/Desktop/pass1a_met_files/" # change if you want another dir
+try(dir.create(local_destination))
+analysis_out_files_dest = paste(local_destination,"/analysis_out_files/",sep="")
+try(dir.create(analysis_out_files_dest))
+
 ```
-Define the variables to be adjusted for:
+
+Define the parameters for the analyses below including which covariates to take and what normalization methods to consider.
 
 ```{r}
+# Define the variables to be adjusted for:
 biospec_cols = c(
   "acute.test.distance",
   "calculated.variables.time_to_freeze",
-  # "calculated.variables.edta_coll_time", # no need - see code above for blood
   "bid" # required for matching datasets
   )
 differential_analysis_cols = c(
   "animal.registration.sex",
   "animal.key.timepoint",
-  "animal.key.is_control"
+  "animal.key.is_control",
+  "sample_order"
 )
-pipeline_qc_cols = c("sample_order")
+# normalization method pairs to test
+tar_vs_untar_norm_pairs = list(
+  c("log2,imp","log,med,imp"),
+  c("imp,none","imp,none"),
+  c("imp,none","log,med,imp")
+)
+tp_pairs_for_de = data.frame(
+  tp1 = c(0.0,1.0,4.0,4.0,24.0,7.0),
+  tp1_is_control = c(F,F,F,F,F,F),
+  tp2 = c(0.0,0.0,1.0,7.0,0.0,7.0),
+  tp2_is_control = c(T,F,F,T,T,T)
+)
 ```
 
-# Log-transform: effect on variance
-
-Some sites do not use the log transformation on their dataset. In this section we plot the coefficient of variation as a function of the mean instensity. We take a single dataset as an example to show how log-transformed data have reduced dependency and smoother plots.
-
-As an additional analysis we also plot the number of missing values per metabolite as a function of its mean intensity. We show that while there is high correlation some missing values appear in fairely high intensities. This is important for imputation as some sites use some fixed low value instead of knn imputation.
-
-```{r,out.height='50%',out.width='50%',message=FALSE,warning=FALSE}
-
-# Plot cv vs means
-library(gplots)
-d = metabolomics_parsed_datasets[["white_adipose_powder,metab_u_hilicpos,unnamed"]]
-dx = d$sample_data
-CoV<-function(x){return(sd(x,na.rm = T)/mean(x,na.rm=T))}
-dmeans = apply(dx,1,mean,na.rm=T)
-CoVs = apply(dx,1,CoV)
-inds = !is.na(CoVs)
-df = data.frame(Mean_intensity = dmeans[inds],CoV = CoVs[inds])
-plot(CoV~Mean_intensity,df,cex=0.5,pch=20,main="Raw data")
-lines(lowess(CoV~Mean_intensity,df),lty=2,lwd=2,col="blue")
-
-# Repeat after log2
-dx = log(1+d$sample_data,base=2)
-dmeans = apply(dx,1,mean,na.rm=T)
-CoVs = apply(dx,1,CoV)
-inds = !is.na(CoVs)
-df = data.frame(Mean_intensity = dmeans[inds],CoV = CoVs[inds])
-plot(CoV~Mean_intensity,df,cex=0.5,pch=20,main="Log2 data")
-lines(lowess(CoV~Mean_intensity,df),lty=2,lwd=2,col="blue")
-
-# Plot number of NAs vs intensity mean
-dx = log(1+d$sample_data,base=2)
-dmeans = apply(dx,1,mean,na.rm=T)
-num_nas = rowSums(is.na(dx))
-df = data.frame(Num_NAs = num_nas[inds],Mean_intensity = dmeans[inds])
-rho = cor(df$Num_NAs,df$Mean_intensity,method="spearman")
-rho = format(rho,digits=2)
-plot(Num_NAs~Mean_intensity,df,cex=0.5,pch=20,
-     main=paste("Spearman:",rho))
-
-
-```
-
-
-# Load the preprocessed and normalized data
+# Preprocess the data to ease the analyses below
 
 ```{r}
+# load the data
 metabolomics_processed_datasets = load_from_bucket(
-  file="metabolomics_processed_datasets11182019.RData",
+  file="metabolomics_processed_datasets04072020.RData",
   bucket = "gs://bic_data_analysis/pass1a/metabolomics/"
 )[[1]]
 
-# Reduce the metadata to the selected columns
+#' Transform the row names to motrpac names whenever possible.
+get_motrpac_dict_rownames<-function(x,row_annot_x){
+  if(length(setdiff(rownames(x),row_annot_x[,1]))>0){
+    stop("rownames in data and annotation do not match")
+  }
+  if(length(setdiff(row_annot_x[,1],rownames(x)))>0){
+    warning("annotation has additional metabolites")
+  }
+  if(! "motrpac_comp_name" %in% colnames(row_annot_x)){
+    stop("no motrpac_comp_name column in annotation")
+  }
+  row_annot_x = row_annot_x[rownames(x),]
+  y = row_annot_x[,"motrpac_comp_name"]
+  inds = !is.na(y) & y!=""
+  rnames = rownames(x)
+  rnames[inds] = y[inds]
+  return(rnames)
+}
+
+# Reduce the metadata to the selected columns, transform row names 
+# to motrpac ids and add bid-based names
 for(currname in names(metabolomics_processed_datasets)){
-  curr_data = metabolomics_processed_datasets[[currname]]$normalized_data[[1]]
+  d = metabolomics_processed_datasets[[currname]]
+  curr_data = d$normalized_data[[1]]
   # organize the metadata
-  curr_meta = merged_dmaqc_data[colnames(curr_data),
-        union(biospec_cols,differential_analysis_cols)]
+  # some covariates may not appear in the data because they had
+  # too many NAs
+  covered_covs = intersect(union(biospec_cols,differential_analysis_cols),
+          colnames(d$sample_meta))
+  curr_meta = d$sample_meta[colnames(curr_data),covered_covs]
   # remove metadata variables with too many NAs
   na_counts = apply(is.na(curr_meta),2,sum)
   curr_meta = curr_meta[,na_counts/nrow(curr_meta) < 0.1]
-  metabolomics_processed_datasets[[currname]]$sample_meta_parsed = curr_meta
+  motrpac_met_names = get_motrpac_dict_rownames(d$normalized_data[[1]],d$row_annot)
+  names(motrpac_met_names) = rownames(d$normalized_data[[1]])
+  # add the new fields
+  d$covs = curr_meta
+  d$motrpac_met_names = motrpac_met_names
+  metabolomics_processed_datasets[[currname]] = d
 }
-```
 
-
-# Log-transform: effect on differential analysis in targeted data
-
-Untargeted data are typically log-transformed and analyzed using linear models. On the other hand, concentration data are sometimes analyzed with the same type of models but using the original data. This raises a problem if we wish to compare exact statistics from these data. In this section we perform residual analysis for single metabolites. Our goal is to identify if concentration data behaves "normally" when not log-transformed. The analysis below examines the residuals of the data after fitting linear models for each metabolite, adjusting for freeze time and sex. We then compare the results with and without the log-transformation, counting the number of metabolites with a significant evidence for non-normally distributed residuals. 
-
-```{r,out.height='50%',out.width='50%',message=FALSE,warning=FALSE}
-# check for normality using the Kolmogorov-Smirnov test
-is_normal_test<-function(v){
-  if(sd(v,na.rm = T)==0){return(0)}
-  try({return(shapiro.test(v)$p.value)})
-  # The Shapiro test may fail if the sd of v is zero
-  return(ks.test(v,"pnorm",mean(v,na.rm=T),sd(v,na.rm = T))$p.value)
-}
-# go over the named datasets, get a logged and an unlogged version of
-# the data, use these as inputs for the regression
-residual_analysis_results = list()
-for(nn1 in names(metabolomics_processed_datasets)){
-  if(!metabolomics_processed_datasets[[nn1]]$is_targeted){next}
-  x_log = metabolomics_processed_datasets[[nn1]]$normalized_data[[1]]
-  x_unlog = 2^x_log
-  
-  # take the covariates, ignore distances
-  x_meta = unique(metabolomics_processed_datasets[[nn1]]$sample_meta_parsed)
-  curr_covs = x_meta[,intersect(colnames(x_meta),biospec_cols[2])]
-  curr_order = metabolomics_processed_datasets[[nn1]]$sample_meta_raw[
-    rownames(x_meta),"sample_order"]
-  curr_covs = data.frame(curr_covs,
-      sex=x_meta$animal.registration.sex,
-      sample_order = curr_order)
-  
-  # get the lm objects
-  curr_models = list()
-  for(tp in unique(x_meta$animal.key.timepoint)){
-      res_log = apply(
-        x_log,1,
-        pass1a_simple_differential_abundance,
-        tps = x_meta$animal.key.timepoint,tp=tp,
-        is_control = x_meta$animal.key.is_control,
-        covs = curr_covs,return_model=T
-      )
-      res_unlog = apply(
-        x_unlog,1,
-        pass1a_simple_differential_abundance,
-        tps = x_meta$animal.key.timepoint,tp=tp,
-        is_control = x_meta$animal.key.is_control,
-        covs = curr_covs,return_model=T
-      )
-      is_norm = cbind(
-        sapply(res_log,function(x)is_normal_test(residuals(x))),
-        sapply(res_unlog,function(x)is_normal_test(residuals(x)))
-      )
-      colnames(is_norm) = c("log","not log")
-      curr_models[[as.character(tp)]] = is_norm
-      
-      # # test a specific model
-      # ind = 246
-      # plot(x_unlog[ind,],x_log[ind,])
-      # 
-      # resids_log = rstandard(res_log[[ind]])
-      # fit_log = res_log[[ind]]$fitted.values
-      # resids_unlog = rstandard(res_unlog[[ind]])
-      # fit_unlog = res_unlog[[ind]]$fitted.values
-      # 
-      # plot(fit_log,resids_log)
-      # plot(fit_unlog,resids_unlog)
+# Transform sample id to bid
+for(currname in names(metabolomics_processed_datasets)){
+  d = metabolomics_processed_datasets[[currname]]
+  bids = as.character(d$sample_meta[colnames(d$normalized_data[[1]]),"bid"])
+  if(any(bids!=d$sample_meta[,"bid"])){
+    print(paste("Warning in dataset",
+           currname,"sample order in data and metadata do not match"))
   }
-  residual_analysis_results[[nn1]] = curr_models
-}
-
-# Is there a significant difference between the two options?
-log_vs_unlog_summ_mat = sapply(residual_analysis_results,
-    function(x)sapply(x,
-        function(y)
-          wilcox.test(y[,1],y[,2],paired = T,alternative = "g")$p.value))
-
-# Count the number of non-normal metabolites
-num_nonnormal_log = sapply(residual_analysis_results,
-    function(x)sapply(x,
-        function(y)sum(y[,1]<0.05)))
-num_nonnormal_log = 
-  num_nonnormal_log[,order(colnames(num_nonnormal_log))]
-num_nonnormal_unlog = sapply(residual_analysis_results,
-    function(x)sapply(x,
-        function(y)sum(y[,2]<0.05)))
-num_nonnormal_unlog = 
-  num_nonnormal_unlog[,order(colnames(num_nonnormal_unlog))]
-
-library(corrplot)
-par(mar = c(5,5,5,10))
-normdiffs = t(num_nonnormal_log)- t(num_nonnormal_unlog)
-corrplot(normdiffs,is.corr = F,tl.cex = 0.7)
-```
-
-
-
-# Trageted vs. Untargeted: single metabolite comparison
-
-## Compute statistics for each dataset
-
-Compare overlaps, effect sizes, and correlations within tissues. Compare targeted-untargeted pairs only. For differential analysis we use the same model as in the analysis above.
-
-```{r,out.height='50%',out.width='50%',message=FALSE,warning=FALSE}
-
-# Transform the data matrix to have compound names as row names.
-# This requires removing rows without names and changing the rownames of
-# the input matrix x.
-# Also, do not assume that the row annotation orde fits the data necessarily
-extract_by_comp_name_from_row_annot<-function(x,row_annot_x){
-  # get the column that has the row names of x or at least
-  # have the greatest intersection with it
-  int_sizes = apply(row_annot_x,2,function(x,y)length(intersect(x,y)),y=rownames(x))
-  ind = which(int_sizes==max(int_sizes,na.rm = T))[1]
-  # update the annotation table to have only rows that have 
-  # a row in x and then update the rownames to be from the 
-  # selected column
-  row_annot_x = row_annot_x[is.element(row_annot_x[,ind],set=rownames(x)),]
-  rownames(row_annot_x) = row_annot_x[,ind]
-  # we can now intersect x and the annotation using their row names
-  # and update x accordingly
-  shared = intersect(rownames(row_annot_x),rownames(x))
-  x = x[shared,]
-  row_annot_x = row_annot_x[shared,]
-  # make sure we do not have NA comp names
-  inds2 = !is.na(row_annot_x$motrpac_comp_name)
-  x = x[inds2,]
-  row_annot_x = row_annot_x[inds2,]
-  new_rownames = row_annot_x$motrpac_comp_name
-  # handle duplications if exist
-  dups = names(which(table(new_rownames)>1))
-  for(dup in dups){
-    curr_num = sum(new_rownames==dup)
-    new_rownames[new_rownames==dup] = c(dup,paste(dup,1:(curr_num-1),sep=""))
-  }
-  rownames(x) = new_rownames
-  return(x)
-}
-
-get_metadata_by_bid<-function(obj){
-    y_meta = unique(obj$sample_meta_parsed)
-    y_order = obj$sample_meta_raw
-    if(all(rownames(y_meta) %in% rownames(y_order)) &&
-       "sample_order" %in% colnames(y_order)){
-      y_meta$sample_order = y_order[rownames(y_meta),"sample_order"]
+  if(length(unique(bids))==ncol(d$normalized_data[[1]])){
+    rownames(d$sample_meta) = bids
+    for(j in 1:length(d$normalized_data)){
+      colnames(d$normalized_data[[j]]) = bids
     }
-    rownames(y_meta) = y_meta$bid
-    return(y_meta)
+  }
+  else{
+    print(paste("there are ",nrow(d$sample_meta),"samples in dataset",currname))
+    print(paste(" => bid column names are not unique in:",currname,", merging"))
+    oldmeta = d$sample_meta
+    newmeta_inds = c()
+    for(bid in unique(bids)){
+      newmeta_inds = c(newmeta_inds,which(bids==bid)[1])
+    }
+    newmeta = oldmeta[newmeta_inds,]
+    rownames(newmeta) = as.character(newmeta[,"bid"])
+    d$sample_meta = newmeta
+    for(j in 1:length(d$normalized_data)){
+      d$normalized_data[[j]] = aggregate_repeated_samples(
+        d$normalized_data[[j]],bids,na.rm=T
+      )
+      if(!(all(colnames(d$normalized_data[[j]]) %in%
+               rownames(newmeta)))){
+        print(paste("!!! Error in merging samples by bid in dataset",currname))
+      }
+      d$normalized_data[[j]] = d$normalized_data[[j]][
+        ,rownames(newmeta)]
+    }
+    d$motrpac_met_names = d$motrpac_met_names[rownames(d$normalized_data[[1]])]
+    print("done")
+  }
+  metabolomics_processed_datasets[[currname]] = d
+  
 }
 
-tar_vs_untar_norm_pairs = list(
-  c("log2,imp","log2,imp,TMM"),
-  c("log2,imp","log2,imp"),
-  c("log2,imp","med,log,imp"),
-  c("imp,none","imp,none"),
-  c("imp,none","imp,TMM"),
-  c("imp,none","med,log,imp")
-)
+# Get the named datasets separately - easier to work with later
+processed_named_datasets = list()
+for(currname in names(metabolomics_processed_datasets)){
+  d = metabolomics_processed_datasets[[currname]]
+  inds = !is.na(d$row_annot$motrpac_comp_name)
+  d$row_annot = d$row_annot[inds,]
+  d$motrpac_met_names = d$motrpac_met_names[inds]
+  if(!all(d$motrpac_met_names == d$row_annot$motrpac_comp_name)){
+      print(paste("Error: row name problems in dataset ",currname))
+  }
+  for(j in 1:length(d$normalized_data)){
+    d$normalized_data[[j]] = d$normalized_data[[j]][inds,]
+    if(!all(rownames(d$normalized_data[[j]]) == rownames(d$row_annot))){
+      print(paste("Error: row name problems in dataset ",currname))
+    }
+    rownames(d$normalized_data[[j]]) = d$motrpac_met_names
+  }
+  processed_named_datasets[[currname]] = d
+}
+gc()
+```
 
-# The loop below is the core of the computations for comparing 
-# targeted and untargeted data when using known compound names
-#
+
+# Compound overlap among the platforms
+
+Compare the overlap between the named metabolites. This is computed for all dataset pairs, but tissue-specific plots are presented for simplicity.
+
+```{r}
+dataset2named_metabolites = lapply(processed_named_datasets,
+       function(x)rownames(x$normalized_data[[1]]))
+Nd = length(processed_named_datasets)
+overlap_matrix = matrix(0,Nd,Nd,dimnames = list(
+  names(processed_named_datasets),names(processed_named_datasets)
+))
+pairwise_shared_metabolites = list()
+for(nn1 in names(processed_named_datasets)){
+  pairwise_shared_metabolites[[nn1]] = list()
+  for(nn2 in names(processed_named_datasets)){
+    shared_metabolites = intersect(
+      dataset2named_metabolites[[nn1]],dataset2named_metabolites[[nn2]])
+    pairwise_shared_metabolites[[nn1]][[nn2]] = shared_metabolites
+    overlap_matrix[nn1,nn2] = length(shared_metabolites)
+  }
+}
+
+dataset2is_targeted = 
+  sapply(processed_named_datasets,function(x)x$is_targeted)
+dataset2tissue = 
+  sapply(processed_named_datasets,function(x)x$tissue)
+tissue2overlap_matrix = list()
+met_lists_coverage = c()
+for(tissue in unique(dataset2tissue)){
+  currdatasets = names(dataset2tissue)[dataset2tissue==tissue]
+  if(length(currdatasets)<2){next}
+  tissue2overlap_matrix[[tissue]] = 
+    overlap_matrix[currdatasets,currdatasets]
+  all_tissue_mets = unique(unlist(dataset2named_metabolites))
+  all_targeted_mets = unique(
+    unlist(dataset2named_metabolites[dataset2is_targeted & dataset2tissue==tissue])
+  )
+  all_untargeted_mets = unique(
+    unlist(dataset2named_metabolites[!dataset2is_targeted & dataset2tissue==tissue])
+  )
+  currv = rep("tar_only",length(all_tissue_mets))
+  in_tar = all_tissue_mets %in% all_targeted_mets
+  in_untar = all_tissue_mets %in% all_untargeted_mets
+  currv[in_untar] = "untar_only"
+  currv[in_untar & in_tar] = "both"
+  currv = paste(tissue,currv,sep=",")
+  met_lists_coverage = rbind(met_lists_coverage,
+                             cbind(all_tissue_mets,currv))
+}
+
+save(overlap_matrix,tissue2overlap_matrix,met_lists_coverage,
+     dataset2named_metabolites, pairwise_shared_metabolites,
+    file = paste(analysis_out_files_dest,
+                 "plarform_named_metabolite_overlaps.RData",sep=""))
+
+# Show the pairwise overlap and the overall Venn diagram
+# comparing targeted to untargeted
+for (tissue in names(tissue2overlap_matrix)){
+  rownames(tissue2overlap_matrix[[tissue]]) = gsub(
+    paste0(tissue,","),"",rownames(tissue2overlap_matrix[[tissue]])
+  )
+  colnames(tissue2overlap_matrix[[tissue]]) = rownames(tissue2overlap_matrix[[tissue]])
+  corrplot(tissue2overlap_matrix[[tissue]],
+           is.corr = F,method = "number",number.cex = 0.7,cl.length = 10)
+  m = met_lists_coverage[grepl(tissue,met_lists_coverage[,2]),]
+  inter_area = sum(grepl("both",m[,2]))
+  tar_area = sum(grepl(",tar_only",m[,2])) + inter_area
+  untar_area = sum(grepl(",untar_only",m[,2])) + inter_area
+  venng = draw.pairwise.venn(tar_area,untar_area,inter_area,
+            c("Targeted","Untargeted"),lty = rep("blank",2), 
+            fill = c("pink", "cyan"), alpha = rep(0.5, 2),
+            cat.dist = rep(0.01, 2),ind=F)
+  grid.arrange(gTree(children=venng),
+               top=paste(tissue,"measured named metabolites",sep=", "))
+}
+
+```
+
+# Correlations of shared metabolites
+
+```{r,out.height='50%',out.width='50%',message=FALSE,warning=FALSE}
 # For each normalization option (a pair from the list above) we compute
-# all pairwise correlation matrices of the overlapping metabolites and
-# the differential analysis results (again of the overlap).
-# These objects are then used later for other quantitative comparisons
-norm_method2comparison_results = list()
+# all pairwise correlation matrices of the overlapping metabolites
+norm_method2correlations = list()
 for(norm_pairs in tar_vs_untar_norm_pairs){
   tar_norm_method = norm_pairs[1]
   untar_norm_method = norm_pairs[2]
-  single_metabolite_corrs = list()
-  single_metabolite_de = c()
-  named2covered_shared_metabolites = list()
-  for(nn1 in names(metabolomics_processed_datasets)){
-    nn1_tissue = metabolomics_processed_datasets[[nn1]]$tissue
-    if(!metabolomics_processed_datasets[[nn1]]$is_targeted){next}
-    single_metabolite_corrs[[nn1]] = list()
-    named2covered_shared_metabolites[[nn1]] = NULL
-    for(nn2 in names(metabolomics_processed_datasets)){
+  metabolite_corrs = list()
+  for(nn1 in names(processed_named_datasets)){
+    nn1_tissue = processed_named_datasets[[nn1]]$tissue
+    if(grepl(",tar,",nn1)){nn1_norm  = tar_norm_method}
+    if(grepl(",untar,",nn1)){nn1_norm  = untar_norm_method}
+    metabolite_corrs[[nn1]] = list()
+    for(nn2 in names(processed_named_datasets)){
       if(nn2 == nn1){next}
-      if(metabolomics_processed_datasets[[nn2]]$is_targeted){next}
-      nn2_tissue = metabolomics_processed_datasets[[nn2]]$tissue
+      if(grepl(",tar,",nn2)){nn2_norm  = tar_norm_method}
+      if(grepl(",untar,",nn2)){nn2_norm  = untar_norm_method}
+      nn2_tissue = processed_named_datasets[[nn2]]$tissue
       nn2_dataset = paste(strsplit(nn2,split=",")[[1]][3:4],collapse = ",")
       if(nn1_tissue!=nn2_tissue){next}
       # get the numeric datasets and their annotation
-      x = metabolomics_processed_datasets[[nn1]]$normalized_data[[tar_norm_method]]
-      y = metabolomics_processed_datasets[[nn2]]$normalized_data[[untar_norm_method]]
-      row_annot_x = metabolomics_processed_datasets[[nn1]]$row_annot
-      row_annot_y = metabolomics_processed_datasets[[nn2]]$row_annot
-      # transform metabolite names to the motrpac comp name
-      x = extract_by_comp_name_from_row_annot(x,row_annot_x)
-      y = extract_by_comp_name_from_row_annot(y,row_annot_y)
-      # align the sample sets
-      bid_y = merged_dmaqc_data[colnames(y),"bid"]
-      bid_x = merged_dmaqc_data[colnames(x),"bid"]    
-      # step 1: merge samples from the same BID
-      if(length(unique(bid_x))!=length(bid_x)){
-        x = aggregate_repeated_samples(x,bid_x)
-      }
-      else{
-        colnames(x) = bid_x
-      }
-      if(length(unique(bid_y))!=length(bid_y)){
-        y = aggregate_repeated_samples(y,bid_y)
-      }else{
-        colnames(y) = bid_y
-      }
-      # step 2: use the shared bio ids
-      shared_bids = as.character(intersect(colnames(y),colnames(x)))
-      x = as.matrix(x[,shared_bids])
-      y = as.matrix(y[,shared_bids])
-      # At this point x and y are over the same BIDs, now we add the metadata
-      y_meta = get_metadata_by_bid(metabolomics_processed_datasets[[nn1]])
-      x_meta = get_metadata_by_bid(metabolomics_processed_datasets[[nn2]])
-      y_meta = y_meta[shared_bids,]
-      x_meta = x_meta[shared_bids,]
+      x = processed_named_datasets[[nn1]]$normalized_data[[nn1_norm]]
+      y = processed_named_datasets[[nn2]]$normalized_data[[nn2_norm]]
+      x = x[apply(x,1,sd)>0,]
+      y = y[apply(y,1,sd)>0,]
+      # compute correlations on overlapping bids
+      currbids = intersect(colnames(x),colnames(y))
+      x = x[,currbids];y=y[,currbids]
       
-      # If one dataset is log-transformed and the other is not
-      # transform back to the original values
+      # Transform to original scale if one dataset is not log-transformed
       is_tar_log = grepl("log",tar_norm_method)
       is_untar_log = grepl("log",untar_norm_method)
-      if(is_tar_log && !is_untar_log){
-        x = 2^x
-      }
-      if(!is_tar_log && is_untar_log){
-        y = 2^y
-      }
+      if(is_tar_log && !is_untar_log){x = 2^x}
+      if(!is_tar_log && is_untar_log){y = 2^y}
     
       # If data are not log-transformed then scale the rows
       if(!is_tar_log || !is_untar_log){
@@ -379,127 +337,178 @@ for(norm_pairs in tar_vs_untar_norm_pairs){
         y = t(scale(t(y),center = T,scale = T))
       }
     
-      # get the shared matebolites
-      shared_metabolites = intersect(rownames(x),rownames(y))
-      shared_metabolites = na.omit(shared_metabolites)
-      print(shared_metabolites[grepl("^Car",shared_metabolites)])
-      if(length(shared_metabolites)==0){next}
-      named2covered_shared_metabolites[[nn1]] = union(
-        named2covered_shared_metabolites[[nn1]],
-        shared_metabolites
-      )
-    
       # Compute the correlation matrices of the shared metabolites
+      shared_metabolites = intersect(rownames(x),rownames(y))
+      if(length(shared_metabolites)==0){next}
       if(length(shared_metabolites)>1){
-          corrs =cor(t(x[shared_metabolites,]),
+          metabolite_corrs[[nn1]][[nn2]] = cor(t(x[shared_metabolites,]),
                 t(y[shared_metabolites,]),method = "spearman")
       }
       else{
-          corrs = cor(x[shared_metabolites,],
+          metabolite_corrs[[nn1]][[nn2]] = cor(x[shared_metabolites,],
                 y[shared_metabolites,],method = "spearman")
       }
-    
-      # take the covariates (ignore distances)
-      curr_cov_cols = intersect(colnames(y_meta),
-                union(biospec_cols[2],pipeline_qc_cols))
-      y_covs = data.frame(y_meta[,curr_cov_cols])
-      names(y_covs) = curr_cov_cols
-      y_covs$sex = y_meta$animal.registration.sex # add sex
-      curr_cov_cols = intersect(colnames(x_meta),
-                union(biospec_cols[2],pipeline_qc_cols))
-      x_covs = data.frame(x_meta[,curr_cov_cols])
-      names(x_covs) = curr_cov_cols
-      x_covs$sex = x_meta$animal.registration.sex # add sex
-    
-      # differential analysis
-      for(tp in unique(y_meta$animal.key.timepoint)){
-        curr_control_tp = NULL
-        # if(tp == 7 || tp == 4){curr_control_tp=7}
-        resx = t(apply(
-          matrix(x[shared_metabolites,],nrow=length(shared_metabolites)),1,
-          pass1a_simple_differential_abundance,
-          tps = y_meta$animal.key.timepoint,tp=tp,
-          is_control = y_meta$animal.key.is_control,
-          covs = y_covs,return_model=F,
-          control_tp = curr_control_tp
-        ))
-        resy = t(apply(
-          matrix(y[shared_metabolites,],nrow=length(shared_metabolites)),1,
-          pass1a_simple_differential_abundance,
-          tps = y_meta$animal.key.timepoint,tp=tp,
-          is_control = y_meta$animal.key.is_control,
-          covs = x_covs,return_model=F,
-          control_tp = curr_control_tp
-        ))
-        # Add dataset information, time point, tissue
-        # These are important annotations for our summary matrix
-        # called single_metabolite_de below
-        added_columns = matrix(cbind(
-          rep(nn1,length(shared_metabolites)),
-          rep(nn2,length(shared_metabolites)),
-          shared_metabolites,
-          rep(tp,length(shared_metabolites)),
-          rep(nn1_tissue,length(shared_metabolites))
-        ),nrow=length(shared_metabolites))
-        resx = cbind(resx,rep(T,nrow(resx)))
-        colnames(resx)[ncol(resx)] = "is_targeted"
-        resy = cbind(resy,rep(F,nrow(resy)))
-        colnames(resy)[ncol(resy)] = "is_targeted"
-        if(nrow(resx)>1){
-          resx = cbind(added_columns[,-2],resx)
-          resy = cbind(added_columns[,-1],resy)
-        }
-        else{
-          resx = c(added_columns[,-2],resx)
-          resy = c(added_columns[,-1],resy)
-       }
-        single_metabolite_de = rbind(single_metabolite_de,resx)
-        single_metabolite_de = rbind(single_metabolite_de,resy)
+      if(any(is.na(metabolite_corrs[[nn1]][[nn2]]))){
+        print("NAs in correlation computation")
+        print(paste(nn1,"vs",nn2))
+        print(table(sum(x)))
+        print(table(sum(y)))
       }
-      single_metabolite_corrs[[nn1]][[nn2]] = corrs
     }
   }
-
-  # Reformat the differential analysis results for easier comparison later
-  single_metabolite_de = data.frame(single_metabolite_de)
-  names(single_metabolite_de) = c("dataset","metabolite","tp","tissue",
-    "Est","Std","Tstat","Pvalue","is_targeted")
-  for(col in names(single_metabolite_de)[-c(1:4)]){
-    single_metabolite_de[[col]] = as.numeric(
-      as.character(single_metabolite_de[[col]]))
-  }
-  for(col in names(single_metabolite_de)[1:4]){
-    single_metabolite_de[[col]] = 
-      as.character(single_metabolite_de[[col]])
-  }
-  # Remove duplications
-  # Rounding the p-values - necessary for removing duplicates
-  # using the unique function
-  rownames(single_metabolite_de) = NULL
-  for(nn in names(single_metabolite_de)){
-    ndig = 5
-    if(grepl("pval",nn,ignore.case = T)){
-      ndig = 10
-    }
-    if(is.numeric(single_metabolite_de[[nn]])){
-      single_metabolite_de[[nn]] = 
-      round(single_metabolite_de[[nn]],digits = ndig)
-    }
-  }
-  single_metabolite_de = unique(single_metabolite_de)
-  
-  # Finally, store all the results for the current normalization pair
   pair_name = paste(tar_norm_method,untar_norm_method,sep=";")
-  norm_method2comparison_results[[pair_name]] = list(
-    single_metabolite_de = single_metabolite_de,
-    single_metabolite_corrs = single_metabolite_corrs,
-    named2covered_shared_metabolites = named2covered_shared_metabolites
-  )
+  norm_method2correlations[[pair_name]] = metabolite_corrs
 }
 
+# Plot some correlations
+rep_correlations = c()
+tissues = unique(sapply(processed_named_datasets,function(x)x$tissue))
+for(pair_name in names(norm_method2correlations)){
+  metabolite_corrs =  norm_method2correlations[[pair_name]]
+  for(tissue in tissues){
+    curr_datasets = names(metabolite_corrs)[
+      grepl(tissue,names(metabolite_corrs))
+    ]
+    between_corrs = c()
+    for(dataset in curr_datasets){
+      l = metabolite_corrs[[dataset]]
+      between_corrs = c(between_corrs,unname(unlist(sapply(l,diag))))
+    }
+    rep_correlations = rbind(rep_correlations,
+          c(pair_name,tissue,mean(between_corrs,na.rm=T),sd(between_corrs,na.rm=T)))
+  }
+}
+rep_correlations = rep_correlations[!is.na(rep_correlations[,3]),]
+rep_correlations = data.frame(
+  "NormMethod" = rep_correlations[,1],
+  "Tissue" = rep_correlations[,2],
+  "Mean" = as.numeric(rep_correlations[,3]),
+  "SD" = as.numeric(rep_correlations[,4])
+)
+rep_correlations = rep_correlations[order(rep_correlations$Tissue),]
+print(
+    ggplot(rep_correlations, aes(x=Tissue, y=Mean, fill=NormMethod)) +
+      geom_bar(position=position_dodge(), stat="identity", colour='black') +
+      geom_errorbar(aes(ymin=Mean-SD, ymax=Mean+SD),na.rm=T, 
+                   width=.2,position=position_dodge(.9))
+)
 ```
 
-We next transform the data above into tables that contain data for each combination of metabolite, time point, and tissue. These are then used for different meta-analyses: (1) a simple random effects analysis, (2) random effects with a binary covariate indicating if a dataset is targeted or untargeted, (3) redo the RE model of (1) with the targeted data only, and (4) redo the RE model of (1) with the untargeted data only.
+We examine the average correlation between the platforms (within tissues). Whenever two platforms share more than a single metabolite we plot both the average correlation between the same metabolites and between other metabolites. Adding the average correlation between platforms but with different metabolites is important as it gives some perspective to what a significant correlation is. That is, in many cases below, the average correlation may be greater than expected.
+
+```{r,out.height='50%',out.width='50%',message=FALSE,warning=FALSE}
+# Next examine the Spearman correlations between platforms
+mean_abs<-function(x,...){return(mean(abs(x),...))}
+sd_abs<-function(x,...){return(sd(abs(x),...))}
+extract_diag_vs_non_diag<-function(corrs,func=mean,...){
+  if(length(corrs)==1){
+    return(c(same=func(corrs,...),other=NA))
+  }
+  same = func(diag(corrs),...)
+  other = func(
+    c(corrs[lower.tri(corrs,diag = F)]),...)
+  return(c(same=same,other=other))
+}
+
+metabolite_corrs = norm_method2correlations$`imp,none;imp,none`
+for(tar_dataset in names(metabolite_corrs)){
+  if(!grepl(",tar,",tar_dataset)){next}
+  l = metabolite_corrs[[tar_dataset]]
+  if(length(l)==0){next}
+  corr_info = as.data.frame(t(sapply(l, extract_diag_vs_non_diag)))
+  corr_sd = as.data.frame(t(sapply(l, extract_diag_vs_non_diag,func=sd)))
+  # shorten the row names
+  rownames(corr_info) = sapply(rownames(corr_info),
+      function(x)paste(strsplit(x,split=",")[[1]][3:4],collapse=","))
+  rownames(corr_sd) = rownames(corr_info)
+  corr_info$dataset = rownames(corr_info)
+  corr_sd$dataset = corr_info$dataset
+  corr_info = melt(corr_info)
+  corr_sd = melt(corr_sd)
+  corr_info$sd = corr_sd$value
+  print(
+    ggplot(corr_info, aes(x=dataset, y=value, fill=variable)) +
+      geom_bar(position=position_dodge(), stat="identity", colour='black') +
+      geom_errorbar(aes(ymin=value-sd, ymax=value+sd),na.rm=T, 
+                   width=.2,position=position_dodge(.9)) +
+    ggtitle(tar_dataset) + xlab("Untargeted dataset") + ylab("Spearman") +
+      labs(fill = "Pair type") + 
+      theme(legend.position="top",legend.direction = "horizontal")
+  )
+}
+```
+
+# Differential analysis
+
+```{r,out.height='50%',out.width='50%',message=FALSE,warning=FALSE}
+# For each normalization option (a pair from the list above) we compute
+# all pairwise correlation matrices of the overlapping metabolites
+norm_method2DE = list()
+for(currname in names(processed_named_datasets)){
+  d - processed_named_datasets[[currname]]
+  for(norm_method in names(d$normalized_data)){
+    x = d$normalized_data[[norm_method]]
+    x_meta = d$sample_meta
+    covs = data.frame(
+      sex = x_meta$animal.registration.sex,
+      sample_order = x_meta$sample_order
+    )
+  }
+}
+for(norm_pairs in tar_vs_untar_norm_pairs){
+  tar_norm_method = norm_pairs[1]
+  untar_norm_method = norm_pairs[2]
+  metabolite_corrs = list()
+  for(nn1 in names(processed_named_datasets)){
+    nn1_tissue = processed_named_datasets[[nn1]]$tissue
+    metabolite_corrs[[nn1]] = list()
+    for(nn2 in names(processed_named_datasets)){
+      if(nn2 == nn1){next}
+      nn2_tissue = processed_named_datasets[[nn2]]$tissue
+      nn2_dataset = paste(strsplit(nn2,split=",")[[1]][3:4],collapse = ",")
+      if(nn1_tissue!=nn2_tissue){next}
+      # get the numeric datasets and their annotation
+      x = processed_named_datasets[[nn1]]$normalized_data[[tar_norm_method]]
+      y = processed_named_datasets[[nn2]]$normalized_data[[untar_norm_method]]
+      # compute correlations on overlapping bids
+      currbids = intersect(colnames(x),colnames(y))
+      x = x[,currbids];y=y[,currbids]
+      
+      # Transform to original scale if one dataset is not log-transformed
+      is_tar_log = grepl("log",tar_norm_method)
+      is_untar_log = grepl("log",untar_norm_method)
+      if(is_tar_log && !is_untar_log){x = 2^x}
+      if(!is_tar_log && is_untar_log){y = 2^y}
+    
+      # If data are not log-transformed then scale the rows
+      if(!is_tar_log || !is_untar_log){
+        x = t(scale(t(x),center = T,scale = T))
+        y = t(scale(t(y),center = T,scale = T))
+      }
+    
+      # Compute the correlation matrices of the shared metabolites
+      shared_metabolites = intersect(rownames(x),rownames(y))
+      if(length(shared_metabolites)==0){next}
+      if(length(shared_metabolites)>1){
+          metabolite_corrs[[nn1]][[nn2]] = cor(t(x[shared_metabolites,]),
+                t(y[shared_metabolites,]),method = "spearman")
+      }
+      else{
+          metabolite_corrs[[nn1]][[nn2]] = cor(x[shared_metabolites,],
+                y[shared_metabolites,],method = "spearman")
+      }
+      if(any(is.na(metabolite_corrs[[nn1]][[nn2]]))){
+        print("NAs in correlation computation")
+        print(paste(nn1,"vs",nn2))
+      }
+    }
+  }
+  pair_name = paste(tar_norm_method,untar_norm_method,sep=";")
+  norm_method2correlations[[pair_name]] = metabolite_corrs
+}
+```
+
+
 
 ```{r,out.height='50%',out.width='50%',message=FALSE,warning=FALSE}
 
@@ -543,97 +552,12 @@ for(pair_name in names(norm_method2comparison_results)){
     meta_analysis_stats
 }
 
-```
-
-
-## Targeted vs. Untargeted: compound overlap 
-
-We first plot the number and percentage of metabolites in the targeted datasets that are measured in at least one untargeted dataset.
-
-```{r,out.height='50%',out.width='50%',message=FALSE,warning=FALSE}
-library(ggplot2)
-dataset2num_metabolites = sapply(metabolomics_processed_datasets, 
-                                 function(x)nrow(x$sample_data))
-named_dataset_coverage = sapply(named2covered_shared_metabolites,length)
-named_dataset_coverage = data.frame(
-  name = names(named_dataset_coverage),
-  percentage = named_dataset_coverage /
-  dataset2num_metabolites[names(named_dataset_coverage)],
-  count = named_dataset_coverage,
-  total = dataset2num_metabolites[names(named_dataset_coverage)]
-)
-# add datasets with no coverage
-all_targeted_datasets = names(metabolomics_processed_datasets)
-all_targeted_datasets = all_targeted_datasets[!grepl("untar",all_targeted_datasets)]
-zero_coverage_datasets = setdiff(all_targeted_datasets,
-                                 named_dataset_coverage$name)
-zero_coverage_datasets = data.frame(
-  name = zero_coverage_datasets,
-  percentage = rep(0,length(zero_coverage_datasets)),
-  count = rep(0,length(zero_coverage_datasets)),
-  total = dataset2num_metabolites[zero_coverage_datasets]
-)
-named_dataset_coverage = rbind(named_dataset_coverage,
-                           zero_coverage_datasets)
-named_dataset_coverage = 
-  named_dataset_coverage[order(as.character(named_dataset_coverage$name)),]
-print(ggplot(named_dataset_coverage, aes(x=name, y=percentage)) + 
-  geom_bar(stat = "identity",width=0.2) + coord_flip() +
-  geom_text(data=named_dataset_coverage, 
-            aes(name, percentage+0.05, label=count), 
-            position = position_dodge(width=0.9),
-            size=4) + 
-  ggtitle("Targeted dataset: coverage by untargeted"))
+save(norm_method2comparison_results,
+    file = paste(analysis_out_files_dest,
+                 "norm_method2comparison_results.RData",sep=""))
 
 ```
 
-
-
-## Comparison results: normalization methods
-
-### Spearman correlations
-
-Compare the normalization methods by their correlation distributions.
-
-```{r,out.height='50%',out.width='50%',message=FALSE,warning=FALSE}
-
-rep_correlations = c()
-tissues = unique(sapply(metabolomics_processed_datasets,function(x)x$tissue))
-for(pair_name in names(norm_method2comparison_results)){
-  single_metabolite_corrs = 
-    norm_method2comparison_results[[pair_name]]$single_metabolite_corrs
-  for(tissue in tissues){
-    curr_datasets = names(single_metabolite_corrs)[
-      grepl(tissue,names(single_metabolite_corrs))
-    ]
-    between_corrs = c()
-    for(tar_dataset in curr_datasets){
-      l = single_metabolite_corrs[[tar_dataset]]
-      between_corrs = c(between_corrs,unname(unlist(sapply(l,diag))))
-    }
-    rep_correlations = rbind(rep_correlations,
-          c(pair_name,tissue,mean(between_corrs,na.rm=T),sd(between_corrs,na.rm=T)))
-  }
-}
-rep_correlations = rep_correlations[!is.na(rep_correlations[,3]),]
-rep_correlations = data.frame(
-  "NormMethod" = rep_correlations[,1],
-  "Tissue" = rep_correlations[,2],
-  "Mean" = as.numeric(rep_correlations[,3]),
-  "SD" = as.numeric(rep_correlations[,4])
-)
-rep_correlations = rep_correlations[order(rep_correlations$Tissue),]
-print(
-    ggplot(rep_correlations, aes(x=Tissue, y=Mean, fill=NormMethod)) +
-      geom_bar(position=position_dodge(), stat="identity", colour='black') +
-      geom_errorbar(aes(ymin=Mean-SD, ymax=Mean+SD),na.rm=T, 
-                   width=.2,position=position_dodge(.9))
-)
-
-```
-
-
-### Differential analysis results
 
 ```{r,out.height='50%',out.width='50%',message=FALSE,warning=FALSE}
 pthr = 0.001
@@ -671,12 +595,9 @@ for(tissue in tissues){
 }
 ```
 
-
-### Meta-analysis results
+Meta-analysis results
 
 ```{r,out.height='50%',out.width='50%',message=FALSE,warning=FALSE}
-library(VennDiagram)
-require(gridExtra)
 pthr = 0.001
 tissues = unique(sapply(metabolomics_processed_datasets,function(x)x$tissue))
 tar_vs_untar_correlations = c()
@@ -752,259 +673,7 @@ for(tissue in tissues){
 ```
 
 
-## Comparison results: detailed analysis of the selected normalization
-
-### Spearman correlations
-
-We examine the average correlation between the platforms (within tissues). Whenever two platforms share more than a single metabolite we plot both the average correlation between the same metabolites and between other metabolites. Adding the average correlation between platforms but with different metabolites is important as it gives some perspective to what a significant correlation is. That is, in many cases below, the average correlation may be greater than expected.
-
-```{r,out.height='50%',out.width='50%',message=FALSE,warning=FALSE}
-# Next examine the Spearman correlations between platforms
-mean_abs<-function(x,...){return(mean(abs(x),...))}
-sd_abs<-function(x,...){return(sd(abs(x),...))}
-extract_diag_vs_non_diag<-function(corrs,func=mean,...){
-  if(length(corrs)==1){
-    return(c(same=func(corrs,...),other=NA))
-  }
-  same = func(diag(corrs),...)
-  other = func(
-    c(corrs[lower.tri(corrs,diag = F)]),...)
-  return(c(same=same,other=other))
-}
-
-single_metabolite_corrs =
-  norm_method2comparison_results$`imp,none;imp,none`$single_metabolite_corrs
-for(tar_dataset in names(single_metabolite_corrs)){
-  l = single_metabolite_corrs[[tar_dataset]]
-  if(length(l)==0){next}
-  corr_info = as.data.frame(t(sapply(l, extract_diag_vs_non_diag)))
-  corr_sd = as.data.frame(t(sapply(l, extract_diag_vs_non_diag,func=sd)))
-  # shorten the row names
-  rownames(corr_info) = sapply(rownames(corr_info),
-      function(x)paste(strsplit(x,split=",")[[1]][3:4],collapse=","))
-  rownames(corr_sd) = rownames(corr_info)
-  corr_info$dataset = rownames(corr_info)
-  corr_sd$dataset = corr_info$dataset
-  corr_info = melt(corr_info)
-  corr_sd = melt(corr_sd)
-  corr_info$sd = corr_sd$value
-  print(
-    ggplot(corr_info, aes(x=dataset, y=value, fill=variable)) +
-      geom_bar(position=position_dodge(), stat="identity", colour='black') +
-      geom_errorbar(aes(ymin=value-sd, ymax=value+sd),na.rm=T, 
-                   width=.2,position=position_dodge(.9)) +
-    ggtitle(tar_dataset) + xlab("Untargeted dataset") + ylab("Spearman") +
-      labs(fill = "Pair type") + 
-      theme(legend.position="top",legend.direction = "horizontal")
-  )
-}
-```
-
-
-## Aggreement as a function of metabolite properties
-
-```{r,out.height='50%',out.width='50%',message=FALSE,warning=FALSE}
-pair_name = 'imp,none;imp,none'
-meta_analysis_stats = norm_method2comparison_results[[pair_name]]$meta_analysis_stats
-pthr = 0.001
-# Naive DE comparison:
-naive_analysis_tar = sapply(meta_analysis_stats,
-        function(x)sum(x$curr_met_data[,"Pvalue"]<pthr &
-                     x$curr_met_data[,"is_targeted"]))
-naive_analysis_untar = sapply(meta_analysis_stats,
-        function(x)sum(x$curr_met_data[,"Pvalue"]<pthr &
-                     !x$curr_met_data[,"is_targeted"]))
-
-ndatasets_analysis_tar = sapply(meta_analysis_stats,
-        function(x)sum(x$curr_met_data[,"is_targeted"]))
-ndatasets_analysis_untar = sapply(meta_analysis_stats,
-        function(x)sum(!x$curr_met_data[,"is_targeted"]))
-# Meta-analysis results
-pvals_tar = sapply(meta_analysis_stats,function(x)x$re_model_tar$pval)
-pvals_untar = sapply(meta_analysis_stats,function(x)x$re_model_untar$pval)
-targeted_diff_p = sapply(meta_analysis_stats,function(x)x$re_model2$pval[2])
-betas_tar = 
-      sapply(meta_analysis_stats,function(x)x$re_model_tar$beta[1,1])
-betas_untar = 
-      sapply(meta_analysis_stats,function(x)x$re_model_untar$beta[1,1])
-
-# Add number of datasets per analysis, NAs, mean intensity/concentration etc.
-# Get from each dataset and each metabolite: mean/sd abudnance, num NAs
-analyzed_metabolites = sapply(names(meta_analysis_stats),function(x)strsplit(x,split=";")[[1]][1])
-analyzed_metabolites = unique(analyzed_metabolites)
-metabolite_features = lapply(analyzed_metabolites,function(x)list())
-names(metabolite_features) = analyzed_metabolites
-for(dataset in names(metabolomics_processed_datasets)){
-  d = metabolomics_processed_datasets[[dataset]]
-  rawd = d$sample_data_raw
-  # transform metabolite ids to raw input (many are NAs, so we exclude them)
-  rawdinds = !is.na(d$data_raw_rownames)
-  rawd = rawd[rawdinds,]
-  rownames(rawd) = d$data_raw_rownames[rawdinds]
-  # transform metabolite names to the motrpac comp name
-  rawd = extract_by_comp_name_from_row_annot(rawd,d$row_annot)
-  arr = strsplit(pair_name,split = ";")[[1]]
-  currnorm = arr[1]
-  if(!d$is_targeted){currnorm = arr[2]}
-  normd = d$normalized_data[[currnorm]]
-  # transform metabolite names to the motrpac comp name
-  normd = extract_by_comp_name_from_row_annot(normd,d$row_annot)
-  mean_intensity = rowMeans(normd)
-  mean_intensity_stand = (mean_intensity - mean(mean_intensity,na.rm=T)) /sd(mean_intensity,na.rm=T)
-  sd_intensity = apply(normd,1,sd,na.rm=T)
-  CoV_intensity  = sd_intensity / mean_intensity
-  rowinds1 = rownames(rawd) %in% analyzed_metabolites
-  rowinds2 = rownames(normd) %in% analyzed_metabolites
-  if(sum(rowinds1,na.rm=T)==0 && sum(rowinds2,na.rm=T)==0){
-    print(paste("dataset",dataset,"has no shared metabolites for the tar/untar analysis"))
-  }
-  rawd_mets = rownames(rawd)[rowinds1]
-  rawd = rawd[rowinds1,]
-  num_NAs = apply(is.na(rawd),1,sum)
-  missing_metabolites_in_norm = rownames(rawd)[!rownames(rawd) %in% rownames(normd)]
-  mean_intensity[missing_metabolites_in_norm] = NA
-  CoV_intensity[missing_metabolites_in_norm] = NA
-  
-  for(metabolite in rownames(rawd)){
-    metabolite_features[[metabolite]][[dataset]] = c(
-      num_NAs = num_NAs[metabolite],mean_abundance = mean_intensity[metabolite],
-      mean_ab_stand = mean_intensity_stand[metabolite],
-      CoV = CoV_intensity[metabolite]
-    )
-  }
-}
-
-local_destination = "~/Desktop/pass1a_met_files/" # change if you want another dir
-try(dir.create(local_destination))
-
-for(tissue in tissues){
-  tissue_dir = paste(local_destination,tissue,"/",sep="")
-  try(dir.create(tissue_dir))
-  
-  # Create the data tables (for sharing)
-  # Assumption: datasets with missing animals are rare and the
-  # first dataset in each tissue contains all 78 animals
-  merged_norm_data_motrpac_name = c()
-  merged_norm_data_all = c()
-  tissue_datasets = names(metabolomics_processed_datasets)
-  tissue_datasets = tissue_datasets[grepl(tissue,tissue_datasets)]
-  for(dataset in tissue_datasets){
-      d = metabolomics_processed_datasets[[dataset]]
-      arr = strsplit(pair_name,split = ";")[[1]]
-      currnorm = arr[1]
-      if(!d$is_targeted){currnorm = arr[2]}
-      normd = d$normalized_data[[currnorm]]
-      unnamed_d = normd
-      # transform metabolite names to the motrpac comp name
-      normd = extract_by_comp_name_from_row_annot(normd,d$row_annot)
-      # transform column names to bid
-      bid_x = merged_dmaqc_data[colnames(normd),"bid"]    
-      # step 1: merge samples from the same BID
-      if(length(unique(bid_x))!=length(bid_x)){
-        normd = aggregate_repeated_samples(normd,bid_x)
-        unnamed_d = aggregate_repeated_samples(unnamed_d,bid_x)
-      }
-      else{
-        colnames(normd) = bid_x
-        colnames(unnamed_d) = bid_x
-      }
-      normd = as.data.frame(normd)
-      normd$dataset = dataset
-      unnamed_d = as.data.frame(unnamed_d)
-      unnamed_d$dataset = dataset
-      
-      missing_samples = setdiff(colnames(merged_norm_data_motrpac_name),colnames(normd))
-      for(missing_samp in missing_samples){
-        normd[[missing_samp]] = NA
-        unnamed_d[[missing_samp]] = NA
-      }
-      
-      if(length(merged_norm_data_motrpac_name)==0){
-        merged_norm_data_motrpac_name = normd
-      }
-      else{
-        merged_norm_data_motrpac_name = rbind(merged_norm_data_motrpac_name,
-                    normd[,colnames(merged_norm_data_motrpac_name)])
-      }
-      if(d$is_targeted){next}
-      if(length(merged_norm_data_all)==0){
-        merged_norm_data_all = unnamed_d
-      }
-      else{
-        merged_norm_data_all = rbind(merged_norm_data_all,
-                    unnamed_d[,colnames(merged_norm_data_all)])
-      }
-  }
-  
-  write.table(as.matrix(merged_norm_data_all),
-              file=paste(tissue_dir,"merged_norm_data_all.txt",sep=""),
-              quote=F,sep="\t",row.names = F,col.names = T)
-  write.table(as.matrix(merged_norm_data_motrpac_name),
-              file=paste(tissue_dir,"merged_norm_data_motrpac_name.txt",sep=""),
-              quote=F,sep="\t",row.names = F,col.names = T)
-  
-  # Create the summary table for all analyses
-  tissue_inds = grepl(tissue,names(targeted_diff_p))
-  if(sum(tissue_inds)==0){next}
-  tissue_m = cbind(
-    naive_analysis_tar[tissue_inds],
-    naive_analysis_untar[tissue_inds],
-    ndatasets_analysis_tar[tissue_inds],
-    ndatasets_analysis_untar[tissue_inds],
-    pvals_tar[tissue_inds],
-    pvals_untar[tissue_inds],
-    betas_tar[tissue_inds],
-    betas_untar[tissue_inds],
-    targeted_diff_p[tissue_inds]
-  )
-  colnames(tissue_m) = c("tar:N_datasets_p<0.001","untar:N_datasets_p<0.001",
-                         "tar:N_datasets","untar:N_datasets",
-                         "tar:meta_analysis_p","untar:meta_analysis_p",
-                         "tar:diff","untar:diff",
-                         "tar_vs_untar:meta_analysis_diff_p")
-  rownames_arr = t(sapply(rownames(tissue_m),function(x)
-    strsplit(x,split=paste(";",tissue,";",sep=""))[[1]]))
-  tissue_m = cbind(rownames_arr[,1],rownames_arr[,2],tissue_m)
-  colnames(tissue_m)[1:2] = c("metabolite","time_point")
-  
-  # Add mean intensities and NA counts
-  met_stats = c()
-  for(nn in rownames(tissue_m)){
-    arr = strsplit(nn,split=paste(";",tissue,";",sep=""))[[1]]
-    currmet = arr[1]
-    currmet %in% analyzed_metabolites
-    currmet_info = metabolite_features[[currmet]]
-    currmet_info = currmet_info[grepl(tissue,names(currmet_info))]
-    currmet_info_tar = currmet_info[grepl(",tar",names(currmet_info))]
-    currmet_info_untar = currmet_info[grepl(",untar",names(currmet_info))]
-    untar_stand_mean = mean(sapply(currmet_info_untar,function(x)x[3]))
-    tar_mean = mean(sapply(currmet_info_tar,function(x)x[3]),na.rm=T)
-    untar_cov = mean(sapply(currmet_info_untar,function(x)x[4]),na.rm=T)
-    tar_cov = mean(sapply(currmet_info_tar,function(x)x[4]),na.rm=T)
-    tar_nas = mean(sapply(currmet_info_tar,function(x)x[1]),na.rm=T)
-    untar_nas = mean(sapply(currmet_info_untar,function(x)x[1]),na.rm=T)
-    v = c(tar_mean,untar_stand_mean,tar_cov,untar_cov,tar_nas,untar_nas)
-    if(any(is.na(v))){break}
-    met_stats = rbind(met_stats,v)
-  }
-  colnames(met_stats) = c(
-    "tar:mean","untar:standardized_mean",
-    "tar:CoV","untar:CoV",
-    "tar:num_NAs","untar:num_NAs"
-  )
-  tissue_m = cbind(tissue_m,met_stats)
-  tissue_m = as.data.frame(tissue_m)
-  for(j in 2:ncol(tissue_m)){
-    tissue_m[[j]] = as.numeric(as.character(tissue_m[[j]]))
-    tissue_m[[j]] = format(tissue_m[[j]],digits = 4)
-  }
-  write.table(as.matrix(tissue_m),file=paste(tissue_dir,"tar_vs_untar_de_analysis.txt",sep=""),
-              quote=F,sep="\t",row.names = F,col.names = T)
-}
-
-```
-
-### Plot selected examples
+## Plot selected examples
 
 Here are the results for lactate in plasma.
 
@@ -1158,256 +827,84 @@ forest(meta_analysis_stats[[disagree_example2]]$re_model1,
 ```
 
 
+<!-- # Log-transform: effect on differential analysis in targeted data -->
 
-# Targeted vs. untargeted: comparison as a prediction task
+<!-- Untargeted data are typically log-transformed and analyzed using linear models. On the other hand, concentration data are sometimes analyzed with the same type of models but using the original data. This raises a problem if we wish to compare exact statistics from these data. In this section we perform residual analysis for single metabolites. Our goal is to identify if concentration data behaves "normally" when not log-transformed. The analysis below examines the residuals of the data after fitting linear models for each metabolite, adjusting for freeze time and sex. We then compare the results with and without the log-transformation, counting the number of metabolites with a significant evidence for non-normally distributed residuals.  -->
 
-Use 5-fold cross validation for analysis within tissues. For each pair of targeted and untargeted datasets from the same tissue, we use the untargeted data as the predictive features and all metabolites in the targeted datasets as the dependent variables. The code below uses feature selection and random forests to train the predictive models. 
+<!-- ```{r,out.height='50%',out.width='50%',message=FALSE,warning=FALSE} -->
+<!-- # check for normality using the Kolmogorov-Smirnov test -->
+<!-- is_normal_test<-function(v){ -->
+<!--   if(sd(v,na.rm = T)==0){return(0)} -->
+<!--   try({return(shapiro.test(v)$p.value)}) -->
+<!--   # The Shapiro test may fail if the sd of v is zero -->
+<!--   return(ks.test(v,"pnorm",mean(v,na.rm=T),sd(v,na.rm = T))$p.value) -->
+<!-- } -->
+<!-- # go over the named datasets, get a logged and an unlogged version of -->
+<!-- # the data, use these as inputs for the regression -->
+<!-- residual_analysis_results = list() -->
+<!-- for(nn1 in names(metabolomics_processed_datasets)){ -->
+<!--   if(!metabolomics_processed_datasets[[nn1]]$is_targeted){next} -->
+<!--   d = metabolomics_processed_datasets[[nn1]] -->
+<!--   x_log = d$normalized_data[[1]] -->
+<!--   x_unlog = 2^x_log -->
+<!--   x_meta = d$covs -->
 
-```{r,out.height='50%',out.width='50%',eval=FALSE,message=FALSE,warning=FALSE}
-nfolds = 5
-prediction_analysis_results = list()
-for(nn1 in names(metabolomics_processed_datasets)){
-  nn1_tissue = strsplit(nn1,split=",")[[1]][1]
-  nn1_tissue = gsub("_powder","",nn1_tissue)
-  if(grepl("untargeted",nn1)){next}
-  for(nn2 in names(metabolomics_processed_datasets)){
-    if(nn2 == nn1){next}
-    if(!grepl("untargeted",nn2)){next}
-    nn2_tissue = strsplit(nn2,split=",")[[1]][1]
-    nn2_tissue = gsub("_powder","",nn2_tissue)
-    nn2_dataset = strsplit(nn2,split=",")[[1]][2]
-    if(nn1_tissue!=nn2_tissue){next}
-    print(paste("features from:",nn2))
-    print(paste("labels from:",nn1))
-    # get the numeric datasets and their annotation
-    y = metabolomics_processed_datasets[[nn1]]$normalized_data[[1]]
-    x = metabolomics_processed_datasets[[nn2]]$normalized_data[[1]]
-    # align the sample sets
-    bid_y = merged_dmaqc_data[colnames(y),"bid"]
-    bid_x = merged_dmaqc_data[colnames(x),"bid"]    
-    # step 1: merge samples from the same BID
-    if(length(unique(bid_x))!=length(bid_x)){
-      x = aggregate_repeated_samples(x,bid_x)
-    }
-    else{
-      colnames(x) = bid_x
-    }
-    if(length(unique(bid_y))!=length(bid_y)){
-      y = aggregate_repeated_samples(y,bid_y)
-    }else{
-      colnames(y) = bid_y
-    }
-    # step 2: use the shared bio ids
-    shared_bids = as.character(intersect(colnames(y),colnames(x)))
-    x = t(as.matrix(x[,shared_bids]))
-    y = t(as.matrix(y[,shared_bids]))
-    # At this point x and y are over the same BIDs, now we add the metadata
-    y_meta = unique(metabolomics_processed_datasets[[nn1]]$sample_meta_parsed)
-    rownames(y_meta) = y_meta$bid
-    y_meta = y_meta[shared_bids,]
-    
-    # take the covariates (ignore distances)
-    curr_cov_cols = intersect(colnames(y_meta),biospec_cols[2])
-    curr_covs = data.frame(y_meta[,curr_cov_cols])
-    names(curr_covs) = curr_cov_cols
-    curr_covs$sex = y_meta$animal.registration.sex # add sex
-    # add the covariates into x
-    x = cbind(x,curr_covs)
-    
-    # Run the regressions
-    folds = sample(rep(1:nfolds,(1+nrow(x)/nfolds)))[1:nrow(x)]
-    numFeatures = min(ncol(x),2000)
-    preds = c();real=c()
-    for(i in 1:ncol(y)){
-      if( i %% 10 == 0){print(paste("analyzing metabolite number:",i))}
-      y_i = y[,1]
-      i_preds = c();i_real=c()
-      for(j in 1:nfolds){
-        tr_x = x[folds!=j,]
-        tr_yi = y_i[folds!=j]
-        te_x = x[folds==j,]
-        te_y = y_i[folds==j]
-        # random forest
-        # model = randomForest(tr_yi,x=tr_x,ntree = 20)
-        # te_preds = predict(model,newdata = te_x)
-        model = feature_selection_wrapper(tr_x,tr_yi,
-                   coeff_of_var,randomForest,
-                   topK = numFeatures,ntree=50)
-        te_preds = predict(model,newdata = te_x)
-        i_preds = c(i_preds,te_preds)
-        i_real = c(i_real,te_y)
-      }
-      preds = cbind(preds,i_preds)
-      real = cbind(real,i_real)
-    }
-    colnames(preds) = colnames(y)
-    colnames(reals) = colnames(y)
-    currname = paste(nn1,nn2,sep=";")
-    prediction_analysis_results[[currname]] = list(
-      preds = preds,real=real
-    )
-  }
-}
-save_to_bucket(prediction_analysis_results,
-               file="tar_vs_untar_prediction_analysis_results.RData",
-               bucket = "gs://bic_data_analysis/pass1a/metabolomics/")
-```
+<!--   # take the covariates, ignore distances -->
+<!--   curr_covs = data.frame( -->
+<!--       sex=x_meta$animal.registration.sex, -->
+<!--       sample_order = x_meta$sample_order -->
+<!--   ) -->
 
-We now take the predicted and real values and estimate the prediction accuracy in different ways. 
+<!--   # get the lm objects -->
+<!--   curr_models = list() -->
+<!--   for(tp in unique(x_meta$animal.key.timepoint)){ -->
+<!--       res_log = apply( -->
+<!--         x_log,1, -->
+<!--         pass1a_simple_differential_abundance, -->
+<!--         tps = x_meta$animal.key.timepoint,tp=tp, -->
+<!--         is_control = x_meta$animal.key.is_control, -->
+<!--         covs = curr_covs,return_model=T -->
+<!--       ) -->
+<!--       res_unlog = apply( -->
+<!--         x_unlog,1, -->
+<!--         pass1a_simple_differential_abundance, -->
+<!--         tps = x_meta$animal.key.timepoint,tp=tp, -->
+<!--         is_control = x_meta$animal.key.is_control, -->
+<!--         covs = curr_covs,return_model=T -->
+<!--       ) -->
+<!--       is_norm = cbind( -->
+<!--         sapply(res_log,function(x)is_normal_test(residuals(x))), -->
+<!--         sapply(res_unlog,function(x)is_normal_test(residuals(x))) -->
+<!--       ) -->
+<!--       colnames(is_norm) = c("log","not log") -->
+<!--       curr_models[[as.character(tp)]] = is_norm -->
+<!--   } -->
+<!--   residual_analysis_results[[nn1]] = curr_models -->
+<!-- } -->
 
-```{r,out.height='50%',out.width='50%',eval=FALSE,message=FALSE,warning=FALSE}
+<!--   # Is there a significant difference between the two options? -->
+<!-- log_vs_unlog_summ_mat = sapply(residual_analysis_results, -->
+<!--     function(x)sapply(x, -->
+<!--         function(y) -->
+<!--           wilcox.test(y[,1],y[,2],paired = T,alternative = "g")$p.value)) -->
 
-prediction_analysis_results =  load_from_bucket(
-  "tar_vs_untar_prediction_analysis_results.RData",
-    "gs://bic_data_analysis/pass1a/metabolomics/",F)
-prediction_analysis_results = prediction_analysis_results[[1]]
+<!-- # Count the number of non-normal metabolites -->
+<!-- num_nonnormal_log = sapply(residual_analysis_results, -->
+<!--     function(x)sapply(x, -->
+<!--         function(y)sum(y[,1]<0.05))) -->
+<!-- num_nonnormal_log =  -->
+<!--   num_nonnormal_log[,order(colnames(num_nonnormal_log))] -->
+<!-- num_nonnormal_unlog = sapply(residual_analysis_results, -->
+<!--     function(x)sapply(x, -->
+<!--         function(y)sum(y[,2]<0.05))) -->
+<!-- num_nonnormal_unlog =  -->
+<!--   num_nonnormal_unlog[,order(colnames(num_nonnormal_unlog))] -->
 
-results_metrics = list()
-for(nn in names(prediction_analysis_results)){
-  preds = prediction_analysis_results[[nn]]$preds
-  real = prediction_analysis_results[[nn]]$real
-  tar_name = strsplit(nn,split=";")[[1]][1]
-  untar_name = strsplit(nn,split=";")[[1]][2]
-  y = metabolomics_processed_datasets[[tar_name]]$normalized_data[[1]]
-  colnames(preds) = rownames(y)
-  colnames(real) = rownames(y)
-  tar_name = simplify_metab_dataset_name(tar_name)
-  untar_name = simplify_metab_dataset_name(untar_name)
-  currtissue = strsplit(tar_name,split=",")[[1]][1]
-  tar_name = gsub(paste(currtissue,",",sep=""),"",tar_name)
-  untar_name = gsub(paste(currtissue,",",sep=""),"",untar_name)
-  if(! currtissue %in% names(results_metrics)){
-    results_metrics[[currtissue]] = list()
-  }
-  if(! tar_name %in% names(results_metrics[[currtissue]])){
-    results_metrics[[currtissue]][[tar_name]] = list()
-  }
-  
-  rhos = format(diag(cor(preds,real,method="spearman")),digits=3)
-  rhos = as.numeric(rhos)
-  SEs = colSums((preds-real)^2)
-  MSEs = SEs / nrow(preds)
-  RMSE = sqrt(MSEs)
-  rMSE = MSEs / apply(y,1,var)
-  CoVs = apply(y,1,sd) / apply(y,1,mean)
-  discCoVs = cut(CoVs,breaks = 2,ordered_result = T)
-  
-  results_metrics[[currtissue]][[tar_name]][[untar_name]] = data.frame(
-    rhos,MSEs,RMSE,rMSE,CoVs,discCoVs
-  )
-}
-
-```
-
-We now present a few summary plots.
-
-```{r,out.height='50%',out.width='50%',eval=FALSE,message=FALSE,warning=FALSE}
-for(tissue in names(results_metrics)){
-  for(tar in names(results_metrics[[tissue]])){
-    l = results_metrics[[tissue]][[tar]]
-    rho_vs_cv = c()
-    for(untar in names(l)){
-      m = l[[untar]][,c("rhos","discCoVs")] # take the current matrix
-      m = cbind(rep(untar,nrow(m)),m)
-      m$discCoVs = as.numeric(m$discCoVs)
-      rho_vs_cv = rbind(rho_vs_cv,m)
-    }
-    colnames(rho_vs_cv)[1] = "dataset"
-    boxplot(rhos~discCoVs:dataset,data=rho_vs_cv,las=2,
-            ylab="Spearman",xlab = "",ylim=c(0,1),
-            main = paste(tissue,tar,sep=","))
-  }
-}
-
-
-```
-
-As additional references, we train below additional models. First, we check the prediction of naive models that use technical and clinical covariates only. Second, we use multi-task regression and deep learning models.
-
-```{r,out.height='50%',out.width='50%',eval=FALSE,message=FALSE,warning=FALSE}
-
-cov_prediction_analysis_results = list()
-for(nn1 in names(metabolomics_processed_datasets)){
-  nn1_tissue = strsplit(nn1,split=",")[[1]][1]
-  nn1_tissue = gsub("_powder","",nn1_tissue)
-  if(grepl("untargeted",nn1)){next}
-  print(nn1)
-  y = metabolomics_processed_datasets[[nn1]]$normalized_data[[1]]
-  y_vials = colnames(y)
-  bid_y = merged_dmaqc_data[colnames(y),"bid"]
-  colnames(y) = bid_y
-  y = t(as.matrix(y))
-  if(ncol(y)>1000){next}
-  cov_cols = c("animal.registration.sex",
-             "acute.test.weight",
-             "acute.test.distance",
-             "animal.key.timepoint")
-  covs = merged_dmaqc_data[y_vials,cov_cols]
-  x = covs
-  
-  # Run the regressions
-  folds = sample(rep(1:nfolds,(1+nrow(x)/nfolds)))[1:nrow(x)]
-  numFeatures = min(ncol(x),2000)
-  preds = c();real=c()
-  for(i in 1:ncol(y)){
-    y_i = y[,1]
-    i_preds = c();i_real=c()
-    for(j in 1:nfolds){
-      print(j)
-      tr_x = x[folds!=j,]
-      tr_yi = y_i[folds!=j]
-      te_x = x[folds==j,]
-      te_y = y_i[folds==j]
-      # random forest
-      model = randomForest(tr_yi,x=tr_x,ntree = 20)
-      te_preds = predict(model,newdata = te_x)
-      i_preds = c(i_preds,te_preds)
-      i_real = c(i_real,te_y)
-    }
-    preds = cbind(preds,i_preds)
-    real = cbind(real,i_real)
-  }
-  cov_prediction_analysis_results[[nn1]] = list(
-      preds = preds,real=real
-    )
-}
-
-# preds = c();real=c()
-# for(j in 1:nfolds){
-#   tr_x = x[folds!=j,]
-#   tr_y = y[folds!=j,]
-#   te_x = x[folds==j,]
-#   te_y = y[folds==j,]
-#   model = MTL_wrapper(tr_x,tr_y,type="Regression", Regularization="L21")
-#   te_preds = predict(model,te_x)
-#   real = rbind(real,te_y)
-#   preds = rbind(preds,te_preds)
-# }
-# diag(cor(preds,real))
-
-# Using PLS regression
-# library(pls)
-# pls_model = plsr(y~x,ncomp = 5,validation="LOO")
-# eval = MSEP(pls_model)
-# 
-# y_pca = prcomp(y)
-# plot(y_pca)
-# explained_var = y_pca$sdev^2/sum(y_pca$sdev^2)
-# y_pca_matrix = y_pca$x[,1:10]
-# 
-# # regress out sex, weight
-# 
-# get_explained_variance_using_PCA(x,y)
-# x = apply(x,2,regress_out,covs=covs)
-# y = apply(y,2,regress_out,covs=covs)
-# get_explained_variance_using_PCA(x,y)
-
-
-```
-
-
-
-
+<!-- library(corrplot) -->
+<!-- par(mar = c(5,5,5,10)) -->
+<!-- normdiffs = t(num_nonnormal_log)- t(num_nonnormal_unlog) -->
+<!-- corrplot(normdiffs,is.corr = F,tl.cex = 0.7) -->
+<!-- ``` -->
 
 
 

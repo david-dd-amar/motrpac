@@ -1,0 +1,232 @@
+---
+title: 'PASS1B DMAQC data: analysis by BIC'
+output:
+  pdf_document: 
+    number_sections: true
+  html_notebook: default
+---
+
+```{r,message=FALSE,warning=FALSE,results="hide"}
+# Set the working directory to the folder with the data
+source("~/Desktop/repos/motrpac-bic-norm-qc/tools/gcp_functions.R")
+
+# Load data from the from the buckets
+local_path = "~/Desktop/MoTrPAC/data/pass_1b/dmaqc_pheno/"
+system(paste("mkdir",local_path))
+bucket = "gs://motrpac-portal-transfer-dmaqc/DMAQC_TRANSFER_PASS_1B.6M_1.00/"
+dmaqc_data_dir = paste(local_path,"3-Data_Sets/",sep="")
+# dictionary path
+dmaqc_dict_dir = paste(local_path,"1-Data_Dictionary/",sep="")
+download_bucket_files_to_local_dir(bucket = paste(bucket,"3-Data_Sets/",sep=""),
+                                   local_path = dmaqc_data_dir)
+download_bucket_files_to_local_dir(bucket = paste(bucket,"1-Data_Dictionary/",sep=""),
+                                   local_path = dmaqc_dict_dir)
+
+all_csvs = list.files(dmaqc_data_dir,full.names = T) # get all files in dir
+all_csvs = all_csvs[grepl(".csv$",all_csvs)] # make sure we take csv only
+# read all files
+csv_data = list()
+for(fname in all_csvs){
+  fname_wo_path = strsplit(fname,split='/')[[1]]
+  fname_wo_path = fname_wo_path[length(fname_wo_path)]
+  csv_data[[fname_wo_path]] = read.csv(fname,stringsAsFactors = F)
+}# sapply(csv_data,dim) # check the dimensions of the different datasets
+
+all_dict_csvs = list.files(dmaqc_dict_dir,full.names = T) # get all files in dir
+all_dict_csvs = all_dict_csvs[grepl(".csv$",all_dict_csvs)] # make sure we take csv only
+# read all files
+dict_data = list()
+for(fname in all_dict_csvs){
+  fname_wo_path = strsplit(fname,split='/')[[1]]
+  fname_wo_path = fname_wo_path[length(fname_wo_path)]
+  dict_data[[fname_wo_path]] = read.csv(fname,stringsAsFactors = F)
+} 
+
+# Shorten the csv names
+names(csv_data) = 
+  sapply(names(csv_data),function(x)strsplit(x,split="PASS_Animal.")[[1]][2])
+names(dict_data) = 
+  sapply(names(dict_data),function(x)strsplit(x,split="PASS_Animal.")[[1]][2])
+names(csv_data) = gsub(".csv","",names(csv_data))
+names(dict_data) = gsub(".csv","",names(dict_data))
+```
+
+# Site comparison
+
+In some versions of the DMAQC data there is a single site. In this case this section will not result in an output.
+
+```{r,out.height='50%',out.width='50%'}
+csv_data$Training$siteID
+# Map site Ids to their names
+site_names = c("910"="Joslin","930"="Florida","940"="Iowa")
+print(table(site_names[as.character(csv_data$Training$siteID)]))
+```
+
+
+# Format the metadata table according to vial ids
+
+We now use DMAQC's mapping of label ids to vial ids and use it to generate a single metadata table that we can share with other sites.
+
+```{r,out.height='50%',out.width='50%'}
+# Helper function for merging columns from data2 into data1
+# The function makes sure there is no column duplications when
+# adding information from data2 into data1
+merge_avoid_col_dup<-function(data1,data2,by_col){
+  data2_cols = c(by_col,setdiff(colnames(data2),colnames(data1)))
+  res = merge(data1, data2[,data2_cols], by=by_col)
+  return(res)
+}
+# Note that Specimen.Processing is intentionally the last added dataset
+# We merge by PIDs so all data before that are animal-level data
+formnames = c("Acute.Test","Animal.Familiarization",
+              "Animal.Key","Animal.Registration",
+              "Specimen.Collection","Specimen.Processing",
+              "Calculated.Variables")
+merged_dmaqc_data = c()
+for(currname in formnames){
+  form_ind = which(grepl(currname,names(csv_data)))
+  if(length(form_ind)==0){
+    print(paste("Error, missing form:",currname))
+  }
+  curr_data = csv_data[[form_ind]]
+  # make sure we do not change the names of the id columns
+  colnames(curr_data) = tolower(colnames(curr_data))
+  columns_to_append = !is.element(colnames(curr_data),
+              set = c("bid","pid","labelid","vialid","viallabel"))
+  colnames(curr_data)[columns_to_append] = 
+    paste(currname,colnames(curr_data)[columns_to_append],sep=".")
+  colnames(curr_data) = tolower(colnames(curr_data))
+
+  if(length(merged_dmaqc_data)==0){
+    merged_dmaqc_data = curr_data
+  }
+  else{
+    # get the merge column - if the data has a label id then use it
+    # otherwise use the animal id
+    by_col = "pid"
+    if(is.element("labelid",colnames(merged_dmaqc_data)) &&
+       is.element("labelid",colnames(curr_data))){
+          by_col = "labelid"
+     }
+    print(paste("merging in table:",currname,", by col:", by_col))
+    merged_dmaqc_data = merge_avoid_col_dup(merged_dmaqc_data,curr_data,by_col)
+  }
+}
+print("Merged animal and biospecimen data tables, dim is:")
+print(dim(merged_dmaqc_data))
+
+# Now map DMAQC's label ids to vialids
+# Sort to make the most up to date file the first in the order
+mapping_files = sort(all_csvs[grepl("BICLabelData",all_csvs)],decreasing = T) 
+mapping_info = csv_data[[mapping_files[1]]]
+colnames(mapping_info) = tolower(colnames(mapping_info))
+# Not all samples in the specimen data are necessarily covered in the mapping
+# file. The mapping file contains info only about samples that were shipped
+# to CAS. As can be seen here:
+table(is.element(merged_dmaqc_data$labelid,set=mapping_info$labelid))
+# We therefore need to extract the intersection:
+shared_labelids = intersect(merged_dmaqc_data$labelid,mapping_info$labelid)
+merged_dmaqc_data = merged_dmaqc_data[
+  is.element(merged_dmaqc_data$labelid,set = shared_labelids),]
+mapping_info = mapping_info[
+  is.element(mapping_info$labelid,set = shared_labelids),]
+print("Merged animal and biospecimen data tables, new dim is:")
+print(dim(merged_dmaqc_data))
+# We also have a many to one mapping from vial ids to labels, we 
+# merge the tables to avoid information loss
+merged_dmaqc_data = merge_avoid_col_dup(merged_dmaqc_data,mapping_info,"labelid")
+print("Merged animal and biospecimen data tables, after adding vialids, new dim is:")
+print(dim(merged_dmaqc_data))
+
+#####
+#####
+# Now put the dictionary in one file as well
+#####
+#####
+merged_column_dictionary = c()
+cols_to_take = c("Field.Name","Data.Type",
+                 "Alias..Field.Name.description.",
+                 "Categorical.Values",
+                 "Categorical.Definitions",
+                 "Continous.Range.Min",
+                 "Continous.Range.Max")
+for(currname in formnames){
+  tmp_dict_data = dict_data[[which(grepl(currname,names(dict_data)))]]
+  # take the required columns, feel in missing ones if necessary
+  tmp_dict_data = tmp_dict_data[,intersect(colnames(tmp_dict_data),cols_to_take)]
+  for(missing_col in setdiff(cols_to_take,colnames(tmp_dict_data))){
+    tmp_dict_data[[missing_col]] = rep(NA,nrow(tmp_dict_data))
+  }
+  # make sure we do not change the names of the id columns
+  tmp_dict_data[,1] = tolower(tmp_dict_data[,1])
+  rows_to_append = !is.element(tmp_dict_data[,1],
+              set = c("bid","pid","labelid","vialid","viallabel"))
+  tmp_dict_data[rows_to_append,1] = 
+    paste(tolower(currname),tmp_dict_data[rows_to_append,1],sep=".")
+  tmp_dict_data$Form.prefix = rep(currname,nrow(tmp_dict_data))
+  
+  merged_column_dictionary = rbind(merged_column_dictionary,tmp_dict_data)
+}
+
+# Final checks of the data
+dim(merged_dmaqc_data)
+merged_column_dictionary = merged_column_dictionary[is.element(
+  merged_column_dictionary[,1],set=colnames(merged_dmaqc_data)
+  ),]
+dim(merged_column_dictionary)
+merged_column_dictionary = unique(merged_column_dictionary)
+dim(merged_column_dictionary)
+
+```
+
+# Save the merged datasets in the cloud
+
+```{r}
+# Solve some formatting issues and columns that are redundant or wrong
+merged_column_dictionary = as.matrix(merged_column_dictionary)
+# All NAs are ""
+merged_column_dictionary[is.na(merged_column_dictionary)] = ""
+# Remove duplications
+merged_column_dictionary = unique(merged_column_dictionary)
+# Add the vial label
+merged_column_dictionary = rbind(
+  c("viallabel","The primary analyzed sample id, corresponds to a row in the data table",
+    "varchar",NA,NA,NA,NA,""),
+  merged_column_dictionary
+)
+# remove: deathtime_after_acute and and frozetime_after_acute
+ind1 = which(grepl("deathtime_after_acute",merged_column_dictionary[,1]))
+ind2 = which(grepl("deathtime_after_acute",colnames(merged_dmaqc_data)))
+merged_column_dictionary = merged_column_dictionary[-ind1,]
+merged_dmaqc_data = merged_dmaqc_data[,-ind2]
+ind1 = which(grepl("frozetime_after_acute",merged_column_dictionary[,1]))
+ind2 = which(grepl("frozetime_after_acute",colnames(merged_dmaqc_data)))
+merged_column_dictionary = merged_column_dictionary[-ind1,]
+merged_dmaqc_data = merged_dmaqc_data[,-ind2]
+
+# To see the bucket list
+# gsutil ls -p motrpac-portal-dev
+currdate = Sys.Date()
+txtname = paste("merged_dmaqc_data",currdate,".txt",sep="")
+rdataname = paste("merged_dmaqc_data",currdate,".RData",sep="")
+dictfname = paste("merged_column_dictionary",currdate,".txt",sep="")
+write.table(merged_dmaqc_data,file=txtname,
+            quote = F,sep="\t",row.names = F)
+save(merged_dmaqc_data,file=rdataname)
+write.table(merged_column_dictionary,file=dictfname,
+            quote = F,sep="\t",row.names = F)
+system(paste("~/google-cloud-sdk/bin/gsutil cp", txtname,
+             "gs://bic_data_analysis/pass1a/pheno_dmaqc/"))
+system(paste("~/google-cloud-sdk/bin/gsutil cp", rdataname,
+             "gs://bic_data_analysis/pass1a/pheno_dmaqc/"))
+system(paste("~/google-cloud-sdk/bin/gsutil cp", dictfname,
+             "gs://bic_data_analysis/pass1a/pheno_dmaqc/"))
+system(paste("~/google-cloud-sdk/bin/gsutil cp", 
+             "~/Desktop/repos/motrpac/animal_data/README.txt",
+             "gs://bic_data_analysis/pass1a/pheno_dmaqc/"))
+
+system(paste("rm", txtname))
+system(paste("rm", rdataname))
+system(paste("rm", dictfname))
+```
+
