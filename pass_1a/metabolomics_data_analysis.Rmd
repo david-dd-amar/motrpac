@@ -87,11 +87,13 @@ differential_analysis_cols = c(
   "sample_order"
 )
 # normalization method pairs to test
+# first is for targeted datsets, second is for untargeted
 tar_vs_untar_norm_pairs = list(
   c("log2,imp","log,med,imp"),
   c("imp,none","imp,none"),
   c("imp,none","log,med,imp")
 )
+# specify time points for pairwise differential analysis
 tp_pairs_for_de = data.frame(
   tp1 = c(0.0,1.0,4.0,4.0,24.0,7.0),
   tp1_is_control = c(F,F,F,F,F,F),
@@ -443,68 +445,64 @@ for(tar_dataset in names(metabolite_corrs)){
 ```{r,out.height='50%',out.width='50%',message=FALSE,warning=FALSE}
 # For each normalization option (a pair from the list above) we compute
 # all pairwise correlation matrices of the overlapping metabolites
-norm_method2DE = list()
+single_metabolite_de = c()
 for(currname in names(processed_named_datasets)){
-  d - processed_named_datasets[[currname]]
+  d = processed_named_datasets[[currname]]
   for(norm_method in names(d$normalized_data)){
     x = d$normalized_data[[norm_method]]
+    # if data was not log-transformed then scale it
+    if(!grepl("log",norm_method)){
+      x = t(scale(t(x),center = T,scale = T))
+    }
     x_meta = d$sample_meta
     covs = data.frame(
       sex = x_meta$animal.registration.sex,
       sample_order = x_meta$sample_order
     )
-  }
-}
-for(norm_pairs in tar_vs_untar_norm_pairs){
-  tar_norm_method = norm_pairs[1]
-  untar_norm_method = norm_pairs[2]
-  metabolite_corrs = list()
-  for(nn1 in names(processed_named_datasets)){
-    nn1_tissue = processed_named_datasets[[nn1]]$tissue
-    metabolite_corrs[[nn1]] = list()
-    for(nn2 in names(processed_named_datasets)){
-      if(nn2 == nn1){next}
-      nn2_tissue = processed_named_datasets[[nn2]]$tissue
-      nn2_dataset = paste(strsplit(nn2,split=",")[[1]][3:4],collapse = ",")
-      if(nn1_tissue!=nn2_tissue){next}
-      # get the numeric datasets and their annotation
-      x = processed_named_datasets[[nn1]]$normalized_data[[tar_norm_method]]
-      y = processed_named_datasets[[nn2]]$normalized_data[[untar_norm_method]]
-      # compute correlations on overlapping bids
-      currbids = intersect(colnames(x),colnames(y))
-      x = x[,currbids];y=y[,currbids]
-      
-      # Transform to original scale if one dataset is not log-transformed
-      is_tar_log = grepl("log",tar_norm_method)
-      is_untar_log = grepl("log",untar_norm_method)
-      if(is_tar_log && !is_untar_log){x = 2^x}
-      if(!is_tar_log && is_untar_log){y = 2^y}
-    
-      # If data are not log-transformed then scale the rows
-      if(!is_tar_log || !is_untar_log){
-        x = t(scale(t(x),center = T,scale = T))
-        y = t(scale(t(y),center = T,scale = T))
-      }
-    
-      # Compute the correlation matrices of the shared metabolites
-      shared_metabolites = intersect(rownames(x),rownames(y))
-      if(length(shared_metabolites)==0){next}
-      if(length(shared_metabolites)>1){
-          metabolite_corrs[[nn1]][[nn2]] = cor(t(x[shared_metabolites,]),
-                t(y[shared_metabolites,]),method = "spearman")
-      }
-      else{
-          metabolite_corrs[[nn1]][[nn2]] = cor(x[shared_metabolites,],
-                y[shared_metabolites,],method = "spearman")
-      }
-      if(any(is.na(metabolite_corrs[[nn1]][[nn2]]))){
-        print("NAs in correlation computation")
-        print(paste(nn1,"vs",nn2))
+    for(j in 1:nrow(tp_pairs_for_de)){
+      currres = t(apply(
+        x,1,simple_pairwise_differential_abundance,
+        tps = x_meta$animal.key.timepoint,
+        is_control = x_meta$animal.key.is_control,
+        tp1 = tp_pairs_for_de[j,1],tp1_iscontrol = tp_pairs_for_de[j,2],
+        tp2 = tp_pairs_for_de[j,3],tp2_iscontrol = tp_pairs_for_de[j,4],
+        covs = covs
+      ))
+      currres  = data.frame(currres)
+      currres$dataset = currname
+      currres$is_targeted = d$is_targeted
+      currres$tissue = d$tissue
+      currres$norm = norm_method
+      currres$is_log_scale = grepl(norm_method,"log")
+      currres$metabolite = rownames(currres)
+      rownames(currres) = NULL
+      single_metabolite_de = rbind(single_metabolite_de,currres)
+    }
+    # repeat the calculation if data was logged
+    if(grepl(norm_method,"log")){
+      x = 2^x
+      x = t(scale(t(x),center = T,scale = T))
+      for(j in 1:nrow(tp_pairs_for_de)){
+        currres = t(apply(
+          x,1,simple_pairwise_differential_abundance,
+          tps = x_meta$animal.key.timepoint,
+          is_control = x_meta$animal.key.is_control,
+          tp1 = tp_pairs_for_de[j,1],tp1_iscontrol = tp_pairs_for_de[j,2],
+          tp2 = tp_pairs_for_de[j,3],tp2_iscontrol = tp_pairs_for_de[j,4],
+          covs = covs
+        ))
+        currres  = data.frame(currres)
+        currres$dataset = currname
+        currres$is_targeted = d$is_targeted
+        currres$tissue = d$tissue
+        currres$norm = norm_method
+        currres$is_log_scale = F
+        currres$metabolite = rownames(currres)
+        rownames(currres) = NULL
+        single_metabolite_de = rbind(single_metabolite_de,currres)
       }
     }
   }
-  pair_name = paste(tar_norm_method,untar_norm_method,sep=";")
-  norm_method2correlations[[pair_name]] = metabolite_corrs
 }
 ```
 
