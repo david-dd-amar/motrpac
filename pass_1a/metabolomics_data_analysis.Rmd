@@ -442,6 +442,8 @@ for(tar_dataset in names(metabolite_corrs)){
 
 # Differential analysis
 
+Compute the summary statistics for each combination of a metabolite, normalization method, and a pair of rat groups.
+
 ```{r,out.height='50%',out.width='50%',message=FALSE,warning=FALSE}
 # For each normalization option (a pair from the list above) we compute
 # all pairwise correlation matrices of the overlapping metabolites
@@ -504,25 +506,90 @@ for(currname in names(processed_named_datasets)){
     }
   }
 }
+single_metabolite_de = single_metabolite_de[!is.na(single_metabolite_de$Pvalue),]
 ```
 
+## Platform overlap with a fixed p-value threshold
 
+Get the overlap of results per tissue and normalization method. The overlap matrices show overlap of metabolite sets from each platform. A discovery is a metabolite with $p<p_thr$ in at least one of the group pairwise comparisons.
+```{r,out.height='50%',out.width='50%',message=FALSE,warning=FALSE}
+get_met_overlap_matrix_from_df<-function(df){
+  met_list = list()
+  for(dataset in unique(df$dataset)){
+    met_list[[dataset]] = unique(df[df$dataset==dataset,"metabolite"])
+  }
+  n = length(met_list)
+  m = matrix(0,n,n,dimnames = list(names(met_list),names(met_list)))
+  for(i in 1:n){
+    for(j in 1:n){
+      m[i,j] = length(intersect(met_list[[i]],met_list[[j]]))
+    }
+  }
+  return(m)
+}
+pthr = 0.001
+tissues = unique(sapply(processed_named_datasets,function(x)x$tissue))
+for(norm_pair in tar_vs_untar_norm_pairs){
+  tar_norm = norm_pair[1]
+  untar_norm = norm_pair[2]
+  tar_is_log = grepl("log",tar_norm)
+  untar_is_log = grepl("log",tar_norm)
+  if(!tar_is_log || !untar_is_log){
+    untar_is_log = F
+    tar_is_log = F
+  }
+  for(tissue in tissues){
+    curr_inds = single_metabolite_de$Pvalue < pthr &
+      single_metabolite_de$tissue == tissue &
+      (single_metabolite_de$is_targeted & single_metabolite_de$norm == tar_norm |
+         !single_metabolite_de$is_targeted & single_metabolite_de$norm == untar_norm) &
+      (single_metabolite_de$is_targeted & single_metabolite_de$is_log_scale == tar_is_log |
+         !single_metabolite_de$is_targeted & single_metabolite_de$is_log_scale == untar_is_log)
+    if(sum(curr_inds)==0){next}
+    curr_overlaps = get_met_overlap_matrix_from_df(single_metabolite_de[curr_inds,])
+    if(length(curr_overlaps) < 2){next}
+    rownames(curr_overlaps) = gsub(paste0(tissue,","),"",rownames(curr_overlaps))
+    colnames(curr_overlaps) = rownames(curr_overlaps)
+    corrplot(curr_overlaps,
+           is.corr = F,method = "number",number.cex = 0.8,cl.length = 10)
+    mtext(side=3,cex=1.1,adj=0.05,
+         paste(tissue,paste0("tar norm:",tar_norm),
+               paste0("untar norm:",untar_norm_method),sep="\n"))
+  }
+}
+```
+
+# Meta-analysis of targeted vs. untargeted
 
 ```{r,out.height='50%',out.width='50%',message=FALSE,warning=FALSE}
-
 library(metafor)
-for(pair_name in names(norm_method2comparison_results)){
+tp_analysis_name = apply(single_metabolite_de[,1:4],1,paste,collapse=",")
+norm_method2comparison_results = list()
+for(norm_pair in tar_vs_untar_norm_pairs){
+  tar_norm = norm_pair[1]
+  untar_norm = norm_pair[2]
+  tar_is_log = grepl("log",tar_norm)
+  untar_is_log = grepl("log",tar_norm)
+  if(!tar_is_log || !untar_is_log){
+    untar_is_log = F
+    tar_is_log = F
+  }
   meta_analysis_stats = list()
-  single_metabolite_de = 
-    norm_method2comparison_results[[pair_name]]$single_metabolite_de
-  for(tissue in unique(single_metabolite_de$tissue)){
-    for(tp in unique(single_metabolite_de$tp)){
+  for(tissue in tissues){
+    for(tp in unique(tp_analysis_name)){
       curr_subset = single_metabolite_de[
-        single_metabolite_de$tissue==tissue &
-          single_metabolite_de$tp==tp,]
+        tp_analysis_name == tp &
+          single_metabolite_de$tissue == tissue,]
+      curr_subset = curr_subset[
+        (curr_subset$is_targeted & curr_subset$norm == tar_norm |
+           !curr_subset$is_targeted & curr_subset$norm == untar_norm) &
+          (curr_subset$is_targeted & curr_subset$is_log_scale == tar_is_log |
+             !curr_subset$is_targeted & curr_subset$is_log_scale == untar_is_log),]
       for(metabolite in unique(curr_subset$metabolite)){
         curr_met_data = curr_subset[
           curr_subset$metabolite==metabolite,]
+        if(is.null(dim(curr_met_data))||nrow(curr_met_data)==1){next}
+        if(length(unique(curr_met_data$is_targeted))<2){next}
         curr_met_data$var = curr_met_data$Std^2
         re_model1 = NULL;re_model2=NULL
         re_model_tar = NULL;re_model_untar = NULL
@@ -546,8 +613,7 @@ for(pair_name in names(norm_method2comparison_results)){
       }
     }
   }
-  norm_method2comparison_results[[pair_name]]$meta_analysis_stats =
-    meta_analysis_stats
+  norm_method2comparison_results[[paste(tar_norm,untar_norm,sep=";")]] = meta_analysis_stats
 }
 
 save(norm_method2comparison_results,
@@ -557,47 +623,12 @@ save(norm_method2comparison_results,
 ```
 
 
-```{r,out.height='50%',out.width='50%',message=FALSE,warning=FALSE}
-pthr = 0.001
-for(tissue in tissues){
-  for(pair_name in names(norm_method2comparison_results)){
-      meta_analysis_stats = 
-          norm_method2comparison_results[[pair_name]]$meta_analysis_stats
-      meta_analysis_stats = meta_analysis_stats[
-        grepl(tissue,names(meta_analysis_stats))
-      ]
-      if(length(meta_analysis_stats)==0){next}
-      naive_analysis_tar = sapply(meta_analysis_stats,
-        function(x)sum(x$curr_met_data[,"Pvalue"]<pthr &
-                     x$curr_met_data[,"is_targeted"]))
-      naive_analysis_untar = sapply(meta_analysis_stats,
-        function(x)sum(x$curr_met_data[,"Pvalue"]<pthr &
-                     !x$curr_met_data[,"is_targeted"]))
-      tb = table(naive_analysis_tar,naive_analysis_untar)
-      nonsig_in_both = tb[1,1]
-      tb[1,1] = 0
-      barplot(t(tb),
-              legend=T,xlab="Number of targeted datasets with p<0.001",
-              ylab = "number of metabolites",
-              main = paste(tissue,pair_name))
-      
-      # write.table(
-      #   names(which(naive_analysis_tar>0 & naive_analysis_untar==0)),
-      #   quote = F,row.names = F
-      # )
-      # write.table(
-      #   names(which(naive_analysis_tar==0 & naive_analysis_untar>0)),
-      #   quote = F,row.names = F
-      # )
-  }
-}
-```
+
 
 Meta-analysis results
 
 ```{r,out.height='50%',out.width='50%',message=FALSE,warning=FALSE}
 pthr = 0.001
-tissues = unique(sapply(metabolomics_processed_datasets,function(x)x$tissue))
 tar_vs_untar_correlations = c()
 for(tissue in tissues){
   for(pair_name in names(norm_method2comparison_results)){
@@ -669,6 +700,7 @@ for(tissue in tissues){
   }
 }
 ```
+
 
 
 ## Plot selected examples
