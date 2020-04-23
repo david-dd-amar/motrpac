@@ -768,6 +768,28 @@ forest(meta_analysis_stats[[disagree_example2]]$re_model1,
 
 ```
 
+Plot some of Duke's results - should fit their presentation (see shared drive).
+```{r,out.height='50%',out.width='50%',message=FALSE,warning=FALSE}
+d = metabolomics_processed_datasets$`plasma,tar,ac_duke,duke`
+df = data.frame(
+  car18_1 = d$normalized_data[[2]]["Car(18:1)",],
+  sex = d$sample_meta$animal.registration.sex,
+  time = d$sample_meta$animal.key.timepoint
+)
+# this should fit slide 6 in the Duke's pdf
+boxplot(car18_1~time,data=df[df$sex==2,],main = "Car18:1 data in males, plasma")
+
+d = metabolomics_processed_datasets$`gastrocnemius,tar,ka,duke`
+df = data.frame(
+  ketoleucine = d$normalized_data[[2]]["ketoleucine",],
+  sex = d$sample_meta$animal.registration.sex,
+  time = d$sample_meta$animal.key.timepoint
+)
+# this should fit slide 13 in the Duke's pdf
+boxplot(ketoleucine~time,data=df[df$sex==1,])
+
+```
+
 ## Additional meta-analysis results
 
 ```{r,out.height='50%',out.width='50%',message=FALSE,warning=FALSE}
