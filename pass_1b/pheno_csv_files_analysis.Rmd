@@ -1,9 +1,11 @@
 ---
 title: 'PASS1B DMAQC data: analysis by BIC'
 output:
-  pdf_document: 
-    number_sections: true
+  html_document:
+    df_print: paged
   html_notebook: default
+  pdf_document:
+    number_sections: yes
 ---
 
 ```{r,message=FALSE,warning=FALSE,results="hide"}
@@ -49,76 +51,177 @@ names(dict_data) =
   sapply(names(dict_data),function(x)strsplit(x,split="PASS_Animal.")[[1]][2])
 names(csv_data) = gsub(".csv","",names(csv_data))
 names(dict_data) = gsub(".csv","",names(dict_data))
-```
 
-# Site comparison
-
-In some versions of the DMAQC data there is a single site. In this case this section will not result in an output.
-
-```{r,out.height='50%',out.width='50%'}
-csv_data$Training$siteID
-# Map site Ids to their names
+#Look at the sites
 site_names = c("910"="Joslin","930"="Florida","940"="Iowa")
 print(table(site_names[as.character(csv_data$Training$siteID)]))
+
+# Reorder the datasets in the following order: 
+# pid-based, labelid-based, bid-based, vial-based, BIC
+neword = c(
+  "Key","Registration","Familiarization",
+  "NMR.Testing", "Training", "Terminal.Weight", "VO2.Max.Test",
+  "Specimen.Collection","Specimen.Processing","Calculated.Variables",
+  "BICLabelData"
+)
+csv_data = csv_data[neword]
+dict_data = dict_data[neword]
+sapply(csv_data,function(x)colnames(x)[1:2])
+sapply(csv_data, nrow)
+sapply(csv_data,function(x)"pid" %in% names(x))
+sapply(csv_data,function(x)"labelid" %in% names(x)) # use labelid in data
+sapply(csv_data,function(x)"labelID" %in% names(x)) # use labelID in the BIC's sheet?
+sapply(csv_data,function(x)"bid" %in% names(x))
+sapply(csv_data,function(x)"vialLabel" %in% names(x))
 ```
 
+NOTE: in the code above we ignored the site-level tables. These include additional information such as temperature and humidity.
+
+Check field overlaps between the dictionaries. 
+Let S be the set of datasets. For a dataset $i$ define a set of fields $R_i$ as the set of fields that already appeared in datasets $1...i-1$. Use the fieldGUID to check for field overlaps. $R_i$ will be used later when the tables are merged. 
+
+```{r}
+R = list()
+for(n1 in names(dict_data)){
+  R_n1 = c()
+  for(n2 in names(dict_data)){
+    if(n1==n2){break}
+    inter = intersect(dict_data[[n1]][,"Field.Name"],
+                      dict_data[[n2]][,"Field.Name"])
+    if(length(inter)==0){next}
+    # print(paste(n1,n2,sep=" ### "))
+    # print(inter)
+    if(any(grepl("fieldGUID",names(dict_data[[n1]]))) &&
+       any(grepl("fieldGUID",names(dict_data[[n2]])))){
+          inter = intersect(dict_data[[n1]][,13],
+                      dict_data[[n2]][,13])
+          if(length(inter)==0){next}
+          # print(paste(n1,n2,sep=" ### "))
+          # print(inter)
+          R_n1 = union(R_n1,
+                 unique(dict_data[[n1]][dict_data[[n1]][,13] %in% inter,"Field.Name"]))
+       }
+  }
+  R[[n1]] = R_n1
+}
+R
+```
+
+We go over the data dictionary and mark the fields that we need to keep. To this end we decided to keep fields with codes 1 and 2 in the code for release, column 1 in the dictionary. We decided to exclude fields associated with the CRF version used.
+
+```{r}
+new_dicts = list()
+for(dictname in names(dict_data)){
+  dict = dict_data[[dictname]]
+  to_keep = dict[[1]] < 3
+  fnames = dict[["Field.Name"]]
+  to_keep = to_keep & !grepl("version",fnames)
+  dict_columns_to_keep = 
+    !grepl("^External.Data.Release",names(dict),perl=T) &
+    !grepl("^versionNbr",names(dict),perl=T) &
+    !grepl("^Data.Set.Variable.Sequence",names(dict),perl=T) &
+    !grepl("^fieldGUID",names(dict),perl=T)
+  new_dicts[[dictname]] = unique(dict[to_keep,dict_columns_to_keep])
+  if(any(table(new_dicts[[dictname]][,"Field.Name"])>1)){
+    print(paste("In",dictname,"field names are not unique after filter"))
+    print(new_dicts[[dictname]][,"Field.Name"])
+  }
+  if(!all(new_dicts[[dictname]][,"Field.Name"] %in% colnames(csv_data[[dictname]]))){
+    print(paste("Error, not all remaining fields appear in the dataset:",dictname))
+  }
+}
+dict_data = new_dicts
+for(dataset_name in names(csv_data)){
+  d = csv_data[[dataset_name]]
+  d = d[,dict_data[[dataset_name]][,"Field.Name"]]
+  csv_data[[dataset_name]] = d
+}
+sapply(csv_data, nrow)
+sapply(csv_data,function(x)"pid" %in% names(x))
+sapply(csv_data,function(x)"labelid" %in% names(x)) # use labelid in data
+sapply(csv_data,function(x)"labelID" %in% names(x)) # use labelID in the BIC's sheet?
+sapply(csv_data,function(x)"bid" %in% names(x))
+sapply(csv_data,function(x)"vialLabel" %in% names(x))
+
+# For some reason some dictionaries start with FormName and some call it Data.Set.Name
+sapply(dict_data,names)
+for(n in names(dict_data)){
+  names(dict_data[[n]])[1] = "FormName"
+}
+```
 
 # Format the metadata table according to vial ids
 
-We now use DMAQC's mapping of label ids to vial ids and use it to generate a single metadata table that we can share with other sites.
+Use DMAQC's mapping of label ids to vial ids and use it to generate a single metadata table that we can share with other sites.
 
-```{r,out.height='50%',out.width='50%'}
-# Helper function for merging columns from data2 into data1
-# The function makes sure there is no column duplications when
-# adding information from data2 into data1
-merge_avoid_col_dup<-function(data1,data2,by_col){
-  data2_cols = c(by_col,setdiff(colnames(data2),colnames(data1)))
-  res = merge(data1, data2[,data2_cols], by=by_col)
-  return(res)
-}
-# Note that Specimen.Processing is intentionally the last added dataset
-# We merge by PIDs so all data before that are animal-level data
-formnames = c("Acute.Test","Animal.Familiarization",
-              "Animal.Key","Animal.Registration",
-              "Specimen.Collection","Specimen.Processing",
-              "Calculated.Variables")
-merged_dmaqc_data = c()
-for(currname in formnames){
-  form_ind = which(grepl(currname,names(csv_data)))
-  if(length(form_ind)==0){
-    print(paste("Error, missing form:",currname))
+```{r,out.height='50%',out.width='50%',eval=F}
+# Define the columns that can be ids in the final table
+ID_COLS = c("bid","pid","labelID","vialLabel","labelid","viallabel")
+DICT_COLS = names(dict_data$Registration)
+# helper function for adding fields to the dictionary
+get_fields_to_dict<-function(newfields,d2,cols){
+  m = d2[d2[,"Field.Name"] %in% newfields,]
+  for(col in setdiff(cols,names(d2))){
+    m[[col]] = NA
   }
-  curr_data = csv_data[[form_ind]]
-  # make sure we do not change the names of the id columns
-  colnames(curr_data) = tolower(colnames(curr_data))
-  columns_to_append = !is.element(colnames(curr_data),
-              set = c("bid","pid","labelid","vialid","viallabel"))
-  colnames(curr_data)[columns_to_append] = 
-    paste(currname,colnames(curr_data)[columns_to_append],sep=".")
-  colnames(curr_data) = tolower(colnames(curr_data))
+  rownames(m) = m[,"Field.Name"]
+  m = m[newfields,]
+  rownames(m) = NULL
+  return(m)
+}
 
-  if(length(merged_dmaqc_data)==0){
-    merged_dmaqc_data = curr_data
+merged_dmaqc_data = c()
+merged_dmaqc_dict = c()
+# Start with merging by pid
+for(currname in names(dict_data)[1:9]){
+  curr_data = csv_data[[currname]]
+  if(currname %in% names(R)){
+    curr_data_subset = curr_data[,
+         setdiff(names(curr_data),R[[currname]])]
   }
   else{
-    # get the merge column - if the data has a label id then use it
-    # otherwise use the animal id
-    by_col = "pid"
-    if(is.element("labelid",colnames(merged_dmaqc_data)) &&
-       is.element("labelid",colnames(curr_data))){
-          by_col = "labelid"
-     }
-    print(paste("merging in table:",currname,", by col:", by_col))
-    merged_dmaqc_data = merge_avoid_col_dup(merged_dmaqc_data,curr_data,by_col)
+    curr_data_subset = curr_data
   }
+  
+  original_names = names(curr_data_subset)
+  is_pid = colnames(curr_data_subset) == "pid"
+  colnames(curr_data_subset)[!is_pid] = paste(currname,colnames(curr_data_subset)[!is_pid],sep=".")
+  if(sum(is_pid)==0){
+    original_names = original_names[original_names!="pid"]
+    curr_data_subset[["pid"]] = curr_data[["pid"]]
+  }
+
+  if(length(merged_dmaqc_data)==0){
+    merged_dmaqc_data = curr_data_subset
+  }
+  else{
+    merged_dmaqc_data = merge(merged_dmaqc_data,curr_data_subset,by="pid")
+    print(dim(merged_dmaqc_data))
+    print(dim(merged_dmaqc_dict))
+  }
+  
+  merged_dmaqc_dict = rbind(merged_dmaqc_dict,
+        get_fields_to_dict(original_names,dict_data[[currname]],DICT_COLS)
+  )
 }
+
+# Add the calculated variables using the label id
+currname = "Calculated.Variables"
+curr_data = csv_data[[currname]]
+curr_data_subset = curr_data[,
+      setdiff(names(curr_data),ID_COLS)]
+by_col = "labelid"
+colnames(curr_data_subset) = paste(currname,colnames(curr_data_subset),sep=".")
+for(id_col in intersect(ID_COLS,names(curr_data))){
+      curr_data_subset[[id_col]] = curr_data[[id_col]]
+}
+# print(paste("merging in table:",currname,", by col:", by_col))
+merged_dmaqc_data = merge(merged_dmaqc_data,curr_data_subset,by=by_col)
 print("Merged animal and biospecimen data tables, dim is:")
 print(dim(merged_dmaqc_data))
 
 # Now map DMAQC's label ids to vialids
-# Sort to make the most up to date file the first in the order
-mapping_files = sort(all_csvs[grepl("BICLabelData",all_csvs)],decreasing = T) 
-mapping_info = csv_data[[mapping_files[1]]]
+mapping_info = csv_data$BICLabelData
 colnames(mapping_info) = tolower(colnames(mapping_info))
 # Not all samples in the specimen data are necessarily covered in the mapping
 # file. The mapping file contains info only about samples that were shipped
@@ -129,59 +232,20 @@ shared_labelids = intersect(merged_dmaqc_data$labelid,mapping_info$labelid)
 merged_dmaqc_data = merged_dmaqc_data[
   is.element(merged_dmaqc_data$labelid,set = shared_labelids),]
 mapping_info = mapping_info[
-  is.element(mapping_info$labelid,set = shared_labelids),]
+  is.element(mapping_info$labelid,set = shared_labelids),c("labelid","viallabel")]
 print("Merged animal and biospecimen data tables, new dim is:")
 print(dim(merged_dmaqc_data))
 # We also have a many to one mapping from vial ids to labels, we 
 # merge the tables to avoid information loss
-merged_dmaqc_data = merge_avoid_col_dup(merged_dmaqc_data,mapping_info,"labelid")
+merged_dmaqc_data = merge(merged_dmaqc_data,mapping_info,by="labelid")
 print("Merged animal and biospecimen data tables, after adding vialids, new dim is:")
 print(dim(merged_dmaqc_data))
-
-#####
-#####
-# Now put the dictionary in one file as well
-#####
-#####
-merged_column_dictionary = c()
-cols_to_take = c("Field.Name","Data.Type",
-                 "Alias..Field.Name.description.",
-                 "Categorical.Values",
-                 "Categorical.Definitions",
-                 "Continous.Range.Min",
-                 "Continous.Range.Max")
-for(currname in formnames){
-  tmp_dict_data = dict_data[[which(grepl(currname,names(dict_data)))]]
-  # take the required columns, feel in missing ones if necessary
-  tmp_dict_data = tmp_dict_data[,intersect(colnames(tmp_dict_data),cols_to_take)]
-  for(missing_col in setdiff(cols_to_take,colnames(tmp_dict_data))){
-    tmp_dict_data[[missing_col]] = rep(NA,nrow(tmp_dict_data))
-  }
-  # make sure we do not change the names of the id columns
-  tmp_dict_data[,1] = tolower(tmp_dict_data[,1])
-  rows_to_append = !is.element(tmp_dict_data[,1],
-              set = c("bid","pid","labelid","vialid","viallabel"))
-  tmp_dict_data[rows_to_append,1] = 
-    paste(tolower(currname),tmp_dict_data[rows_to_append,1],sep=".")
-  tmp_dict_data$Form.prefix = rep(currname,nrow(tmp_dict_data))
-  
-  merged_column_dictionary = rbind(merged_column_dictionary,tmp_dict_data)
-}
-
-# Final checks of the data
-dim(merged_dmaqc_data)
-merged_column_dictionary = merged_column_dictionary[is.element(
-  merged_column_dictionary[,1],set=colnames(merged_dmaqc_data)
-  ),]
-dim(merged_column_dictionary)
-merged_column_dictionary = unique(merged_column_dictionary)
-dim(merged_column_dictionary)
 
 ```
 
 # Save the merged datasets in the cloud
 
-```{r}
+```{r,eval=F}
 # Solve some formatting issues and columns that are redundant or wrong
 merged_column_dictionary = as.matrix(merged_column_dictionary)
 # All NAs are ""
