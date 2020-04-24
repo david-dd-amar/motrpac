@@ -1680,181 +1680,565 @@ names(dict_data) =
 names(csv_data) = gsub(&quot;.csv&quot;,&quot;&quot;,names(csv_data))
 names(dict_data) = gsub(&quot;.csv&quot;,&quot;&quot;,names(dict_data))
 
-#Look at the sites
-site_names = c(&quot;910&quot;=&quot;Joslin&quot;,&quot;930&quot;=&quot;Florida&quot;,&quot;940&quot;=&quot;Iowa&quot;)
-print(table(site_names[as.character(csv_data$Training$siteID)]))
+# Reorder the datasets in the following order: 
+# pid-based, labelid-based, bid-based, vial-based, BIC
+neword = c(
+  &quot;Key&quot;,&quot;Registration&quot;,&quot;Familiarization&quot;,
+  &quot;NMR.Testing&quot;, &quot;Training&quot;, &quot;Terminal.Weight&quot;, &quot;VO2.Max.Test&quot;,
+  &quot;Specimen.Collection&quot;,&quot;Specimen.Processing&quot;,&quot;Calculated.Variables&quot;,
+  &quot;BICLabelData&quot;
+)
+csv_data = csv_data[neword]
+dict_data = dict_data[neword]
+sapply(csv_data,function(x)colnames(x)[1:2])
+sapply(csv_data, nrow)
+sapply(csv_data,function(x)&quot;pid&quot; %in% names(x))
+sapply(csv_data,function(x)&quot;labelid&quot; %in% names(x)) # use labelid in data
+sapply(csv_data,function(x)&quot;labelID&quot; %in% names(x)) # use labelID in the BIC's sheet?
+sapply(csv_data,function(x)&quot;bid&quot; %in% names(x))
+sapply(csv_data,function(x)&quot;vialLabel&quot; %in% names(x))
 
-# Sanity checks: column names in csv data vs. dict data
-l1 = sapply(dict_data,function(x)x[,&quot;Field.Name&quot;] )
-l2 = sapply(csv_data,colnames)
-if(! all(names(csv_data)==names(dict_data))){
-  print(paste(&quot;csv dataset names and dict names do not match&quot;))
+library(stringr)
+FIELD_NAME_PREF = &quot;PASS1BF&quot; # Prefix for the field names we generate
+FIELD_NUMERIC_WIDTH = 5 # numeric part size after padding
+FIELD_COUNT = 1
+generate_new_field_id = function(){
+  newf = paste0(FIELD_NAME_PREF,str_pad(FIELD_COUNT,FIELD_NUMERIC_WIDTH,&quot;left&quot;,&quot;0&quot;))
+  FIELD_COUNT = FIELD_COUNT + 1
+  assign(&quot;FIELD_COUNT&quot;, FIELD_COUNT, envir = .GlobalEnv)
+  return(newf)
 }
-for(j in 1:length(l1)){
-  if(! all(l1[[j]]==l2[[j]])){
-    print(paste(&quot;Field names and column names do not match in:&quot;,names(csv_data)[j]))
+ID_COLS = c(
+ &quot;pid&quot;,&quot;bid&quot;,&quot;labelid&quot;,&quot;viallabel&quot;
+)
+names(ID_COLS) = sapply(ID_COLS,function(x)generate_new_field_id())</code></pre>
+<p>NOTE: in the code above we ignored the site-level tables. These include additional information such as temperature and humidity.</p>
+<p>We now check field overlaps between the dictionaries. Let <span class="math inline">\(S\)</span> be the set of datasets. For a dataset <span class="math inline">\(i=1,...,|S|\)</span> define a set of fields <span class="math inline">\(R_i\)</span> as the set of field names that already appeared in datasets <span class="math inline">\(1...i-1\)</span>. Use the fieldGUID to check for field overlaps. <span class="math inline">\(R_i\)</span> will be used later when the tables are merged.</p>
+<pre class="r"><code>R = list()
+for(n1 in names(dict_data)){
+  R_n1 = c()
+  for(n2 in names(dict_data)){
+    if(n1==n2){break}
+    inter = intersect(dict_data[[n1]][,&quot;Field.Name&quot;],
+                      dict_data[[n2]][,&quot;Field.Name&quot;])
+    if(length(inter)==0){next}
+    # print(paste(n1,n2,sep=&quot; ### &quot;))
+    # print(inter)
+    if(any(grepl(&quot;fieldGUID&quot;,names(dict_data[[n1]]))) &amp;&amp;
+       any(grepl(&quot;fieldGUID&quot;,names(dict_data[[n2]])))){
+          inter = intersect(dict_data[[n1]][,13],
+                      dict_data[[n2]][,13])
+          if(length(inter)==0){next}
+          # print(paste(n1,n2,sep=&quot; ### &quot;))
+          # print(inter)
+          R_n1 = union(R_n1,
+                 unique(dict_data[[n1]][dict_data[[n1]][,13] %in% inter,&quot;Field.Name&quot;]))
+       }
   }
+  R[[n1]] = R_n1
+}
+R</code></pre>
+<pre><code>## $Familiarization
+##  [1] &quot;participantGUID&quot; &quot;d_visit&quot;         &quot;days_visit&quot;      &quot;staffID&quot;        
+##  [5] &quot;siteGUID&quot;        &quot;siteID&quot;          &quot;pid&quot;             &quot;formGUID&quot;       
+##  [9] &quot;FormName&quot;        &quot;versionGUID&quot;     &quot;versionNbr&quot;     
+## 
+## $NMR.Testing
+##  [1] &quot;participantGUID&quot; &quot;d_visit&quot;         &quot;days_visit&quot;      &quot;staffID&quot;        
+##  [5] &quot;siteGUID&quot;        &quot;siteID&quot;          &quot;pid&quot;             &quot;formGUID&quot;       
+##  [9] &quot;FormName&quot;        &quot;versionGUID&quot;     &quot;versionNbr&quot;     
+## 
+## $Training
+##  [1] &quot;participantGUID&quot; &quot;d_visit&quot;         &quot;days_visit&quot;      &quot;staffID&quot;        
+##  [5] &quot;siteGUID&quot;        &quot;siteID&quot;          &quot;pid&quot;             &quot;formGUID&quot;       
+##  [9] &quot;FormName&quot;        &quot;versionGUID&quot;     &quot;versionNbr&quot;     
+## 
+## $VO2.Max.Test
+##  [1] &quot;participantGUID&quot; &quot;d_visit&quot;         &quot;days_visit&quot;      &quot;staffID&quot;        
+##  [5] &quot;siteGUID&quot;        &quot;siteID&quot;          &quot;pid&quot;             &quot;formGUID&quot;       
+##  [9] &quot;FormName&quot;        &quot;versionGUID&quot;     &quot;versionNbr&quot;      &quot;visitGUID&quot;      
+## [13] &quot;visitcode&quot;      
+## 
+## $Specimen.Collection
+##  [1] &quot;participantGUID&quot; &quot;d_visit&quot;         &quot;days_visit&quot;      &quot;staffID&quot;        
+##  [5] &quot;siteGUID&quot;        &quot;siteID&quot;          &quot;pid&quot;             &quot;formGUID&quot;       
+##  [9] &quot;FormName&quot;        &quot;versionGUID&quot;     &quot;versionNbr&quot;      &quot;visitGUID&quot;      
+## [13] &quot;visitcode&quot;</code></pre>
+<p>We go over the data dictionary and mark the fields that we need to keep. To this end we decided to keep fields with codes 1 and 2 in the code for release, which appears in column 1 in the dictionary. We also decided to exclude fields associated with the CRF version used.</p>
+<pre class="r"><code>new_dicts = list()
+for(dictname in names(dict_data)){
+  dict = dict_data[[dictname]]
+  id_inds = dict$Field.Name %in% ID_COLS
+  dict[[&quot;Alt.Field.Name&quot;]] = paste(dictname,dict$Field.Name,sep=&quot;.&quot;)
+  dict[[&quot;Alt.Field.Name&quot;]][id_inds] = dict[[&quot;Field.Name&quot;]][id_inds]
+  to_keep = dict[[1]] &lt; 3
+  fnames = dict[[&quot;Field.Name&quot;]]
+  to_keep = to_keep &amp; !grepl(&quot;version&quot;,fnames)
+  dict_columns_to_keep = 
+    !grepl(&quot;^External.Data.Release&quot;,names(dict),perl=T) &amp;
+    !grepl(&quot;^versionNbr&quot;,names(dict),perl=T) &amp;
+    !grepl(&quot;^Data.Set.Variable.Sequence&quot;,names(dict),perl=T) &amp;
+    !grepl(&quot;^fieldGUID&quot;,names(dict),perl=T)
+  new_dicts[[dictname]] = unique(dict[to_keep,dict_columns_to_keep])
+  if(any(table(new_dicts[[dictname]][,&quot;Field.Name&quot;])&gt;1)){
+    print(paste(&quot;In&quot;,dictname,&quot;field names are not unique after filter&quot;))
+    print(new_dicts[[dictname]][,&quot;Field.Name&quot;])
+  }
+  if(!all(new_dicts[[dictname]][,&quot;Field.Name&quot;] %in% colnames(csv_data[[dictname]]))){
+    print(paste(&quot;Error, not all remaining fields appear in the dataset:&quot;,dictname))
+  }
+}
+dict_data = new_dicts
+for(dataset_name in names(csv_data)){
+  d = csv_data[[dataset_name]]
+  d = d[,dict_data[[dataset_name]][,&quot;Field.Name&quot;]]
+  csv_data[[dataset_name]] = d
+}
+sapply(csv_data, nrow)</code></pre>
+<pre><code>##                  Key         Registration      Familiarization 
+##                  156                  156                  156 
+##          NMR.Testing             Training      Terminal.Weight 
+##                  249                  156                  152 
+##         VO2.Max.Test  Specimen.Collection  Specimen.Processing 
+##                  249                  152                 3770 
+## Calculated.Variables         BICLabelData 
+##                 8570                 4628</code></pre>
+<pre class="r"><code>sapply(csv_data,function(x)&quot;pid&quot; %in% names(x))</code></pre>
+<pre><code>##                  Key         Registration      Familiarization 
+##                 TRUE                 TRUE                 TRUE 
+##          NMR.Testing             Training      Terminal.Weight 
+##                 TRUE                 TRUE                 TRUE 
+##         VO2.Max.Test  Specimen.Collection  Specimen.Processing 
+##                 TRUE                 TRUE                 TRUE 
+## Calculated.Variables         BICLabelData 
+##                 TRUE                 TRUE</code></pre>
+<pre class="r"><code>sapply(csv_data,function(x)&quot;labelid&quot; %in% names(x)) # use labelid in data</code></pre>
+<pre><code>##                  Key         Registration      Familiarization 
+##                FALSE                FALSE                FALSE 
+##          NMR.Testing             Training      Terminal.Weight 
+##                FALSE                FALSE                FALSE 
+##         VO2.Max.Test  Specimen.Collection  Specimen.Processing 
+##                FALSE                FALSE                 TRUE 
+## Calculated.Variables         BICLabelData 
+##                 TRUE                FALSE</code></pre>
+<pre class="r"><code>sapply(csv_data,function(x)&quot;labelID&quot; %in% names(x)) # use labelID in the BIC's sheet?</code></pre>
+<pre><code>##                  Key         Registration      Familiarization 
+##                FALSE                FALSE                FALSE 
+##          NMR.Testing             Training      Terminal.Weight 
+##                FALSE                FALSE                FALSE 
+##         VO2.Max.Test  Specimen.Collection  Specimen.Processing 
+##                FALSE                FALSE                FALSE 
+## Calculated.Variables         BICLabelData 
+##                FALSE                 TRUE</code></pre>
+<pre class="r"><code>sapply(csv_data,function(x)&quot;bid&quot; %in% names(x))</code></pre>
+<pre><code>##                  Key         Registration      Familiarization 
+##                FALSE                FALSE                FALSE 
+##          NMR.Testing             Training      Terminal.Weight 
+##                FALSE                FALSE                FALSE 
+##         VO2.Max.Test  Specimen.Collection  Specimen.Processing 
+##                FALSE                FALSE                 TRUE 
+## Calculated.Variables         BICLabelData 
+##                 TRUE                FALSE</code></pre>
+<pre class="r"><code>sapply(csv_data,function(x)&quot;vialLabel&quot; %in% names(x))</code></pre>
+<pre><code>##                  Key         Registration      Familiarization 
+##                FALSE                FALSE                FALSE 
+##          NMR.Testing             Training      Terminal.Weight 
+##                FALSE                FALSE                FALSE 
+##         VO2.Max.Test  Specimen.Collection  Specimen.Processing 
+##                FALSE                FALSE                FALSE 
+## Calculated.Variables         BICLabelData 
+##                FALSE                 TRUE</code></pre>
+<pre class="r"><code># For some reason some dictionaries start with FormName and some call it FormName
+sapply(dict_data,names)</code></pre>
+<pre><code>## $Key
+## [1] &quot;Data.Set.Name&quot;                  &quot;Field.Name&quot;                    
+## [3] &quot;Alias..Field.Name.description.&quot; &quot;Data.Type&quot;                     
+## [5] &quot;Categorical.Values&quot;             &quot;Categorical.Definitions&quot;       
+## [7] &quot;Alt.Field.Name&quot;                
+## 
+## $Registration
+##  [1] &quot;FormName&quot;                            &quot;Field.Name&quot;                         
+##  [3] &quot;Calculated.Created.variable..1.yes.&quot; &quot;Alias..Field.Name.description.&quot;     
+##  [5] &quot;Data.Type&quot;                           &quot;Categorical.Values&quot;                 
+##  [7] &quot;Categorical.Definitions&quot;             &quot;Continous.Range.Min&quot;                
+##  [9] &quot;Continous.Range.Max&quot;                 &quot;Alt.Field.Name&quot;                     
+## 
+## $Familiarization
+##  [1] &quot;FormName&quot;                            &quot;Field.Name&quot;                         
+##  [3] &quot;Calculated.Created.variable..1.yes.&quot; &quot;Alias..Field.Name.description.&quot;     
+##  [5] &quot;Data.Type&quot;                           &quot;Categorical.Values&quot;                 
+##  [7] &quot;Categorical.Definitions&quot;             &quot;Continous.Range.Min&quot;                
+##  [9] &quot;Continous.Range.Max&quot;                 &quot;Alt.Field.Name&quot;                     
+## 
+## $NMR.Testing
+##  [1] &quot;FormName&quot;                            &quot;Field.Name&quot;                         
+##  [3] &quot;Calculated.Created.variable..1.yes.&quot; &quot;Alias..Field.Name.description.&quot;     
+##  [5] &quot;Data.Type&quot;                           &quot;Categorical.Values&quot;                 
+##  [7] &quot;Categorical.Definitions&quot;             &quot;Continous.Range.Min&quot;                
+##  [9] &quot;Continous.Range.Max&quot;                 &quot;Alt.Field.Name&quot;                     
+## 
+## $Training
+##  [1] &quot;FormName&quot;                            &quot;Field.Name&quot;                         
+##  [3] &quot;Calculated.Created.variable..1.yes.&quot; &quot;Alias..Field.Name.description.&quot;     
+##  [5] &quot;Data.Type&quot;                           &quot;Categorical.Values&quot;                 
+##  [7] &quot;Categorical.Definitions&quot;             &quot;Continous.Range.Min&quot;                
+##  [9] &quot;Continous.Range.Max&quot;                 &quot;Alt.Field.Name&quot;                     
+## 
+## $Terminal.Weight
+## [1] &quot;Data.Set.Name&quot;                  &quot;Field.Name&quot;                    
+## [3] &quot;Alias..Field.Name.description.&quot; &quot;Data.Type&quot;                     
+## [5] &quot;Categorical.Values&quot;             &quot;Categorical.Definitions&quot;       
+## [7] &quot;Alt.Field.Name&quot;                
+## 
+## $VO2.Max.Test
+##  [1] &quot;FormName&quot;                            &quot;Field.Name&quot;                         
+##  [3] &quot;Calculated.Created.variable..1.yes.&quot; &quot;Alias..Field.Name.description.&quot;     
+##  [5] &quot;Data.Type&quot;                           &quot;Categorical.Values&quot;                 
+##  [7] &quot;Categorical.Definitions&quot;             &quot;Continous.Range.Min&quot;                
+##  [9] &quot;Continous.Range.Max&quot;                 &quot;Alt.Field.Name&quot;                     
+## 
+## $Specimen.Collection
+##  [1] &quot;FormName&quot;                            &quot;Field.Name&quot;                         
+##  [3] &quot;Calculated.Created.variable..1.yes.&quot; &quot;Alias..Field.Name.description.&quot;     
+##  [5] &quot;Data.Type&quot;                           &quot;Categorical.Values&quot;                 
+##  [7] &quot;Categorical.Definitions&quot;             &quot;Continous.Range.Min&quot;                
+##  [9] &quot;Continous.Range.Max&quot;                 &quot;Alt.Field.Name&quot;                     
+## 
+## $Specimen.Processing
+##  [1] &quot;FormName&quot;                            &quot;Field.Name&quot;                         
+##  [3] &quot;Calculated.Created.variable..1.yes.&quot; &quot;Alias..Field.Name.description.&quot;     
+##  [5] &quot;Data.Type&quot;                           &quot;Categorical.Values&quot;                 
+##  [7] &quot;Categorical.Definitions&quot;             &quot;Continous.Range.Min&quot;                
+##  [9] &quot;Continous.Range.Max&quot;                 &quot;Alt.Field.Name&quot;                     
+## 
+## $Calculated.Variables
+##  [1] &quot;Data.Set.Name&quot;                       &quot;Field.Name&quot;                         
+##  [3] &quot;Calculated.Created.variable..1.yes.&quot; &quot;Alias..Field.Name.description.&quot;     
+##  [5] &quot;Data.Type&quot;                           &quot;Categorical.Values&quot;                 
+##  [7] &quot;Categorical.Definitions&quot;             &quot;Continous.Range.Min&quot;                
+##  [9] &quot;Continous.Range.Max&quot;                 &quot;Alt.Field.Name&quot;                     
+## 
+## $BICLabelData
+## [1] &quot;Data.Set.Name.&quot;                           
+## [2] &quot;Field.Name&quot;                               
+## [3] &quot;Field.Name.Alias..Field.Name.description.&quot;
+## [4] &quot;Data.Type&quot;                                
+## [5] &quot;Categorical.Values&quot;                       
+## [6] &quot;Categorical.Definitions&quot;                  
+## [7] &quot;Alt.Field.Name&quot;</code></pre>
+<pre class="r"><code>for(n in names(dict_data)){
+  names(dict_data[[n]])[1] = &quot;FormName&quot;
+}
+# Change the BIC - info - lowercase the field names
+# for consistency with the other datasets
+dict_data$BICLabelData$Field.Name = tolower(dict_data$BICLabelData$Field.Name)
+colnames(csv_data$BICLabelData) = tolower(colnames(csv_data$BICLabelData))
+# check for overlap between the R sets and the current names
+for(currname in names(R)){
+  print(intersect(R[[currname]],colnames(csv_data[[currname]])))
 }</code></pre>
+<pre><code>## [1] &quot;days_visit&quot; &quot;staffID&quot;    &quot;siteID&quot;     &quot;pid&quot;        &quot;FormName&quot;  
+## [1] &quot;days_visit&quot; &quot;staffID&quot;    &quot;siteID&quot;     &quot;pid&quot;        &quot;FormName&quot;  
+## [1] &quot;days_visit&quot; &quot;staffID&quot;    &quot;siteID&quot;     &quot;pid&quot;        &quot;FormName&quot;  
+## [1] &quot;days_visit&quot; &quot;staffID&quot;    &quot;siteID&quot;     &quot;pid&quot;        &quot;FormName&quot;  
+## [6] &quot;visitcode&quot; 
+## [1] &quot;days_visit&quot; &quot;staffID&quot;    &quot;siteID&quot;     &quot;pid&quot;        &quot;FormName&quot;  
+## [6] &quot;visitcode&quot;</code></pre>
 <div id="format-the-metadata-table-according-to-vial-ids" class="section level1">
 <h1>Format the metadata table according to vial ids</h1>
-<p>Use DMAQC’s mapping of label ids to vial ids and use it to generate a single metadata table that we can share with other sites.</p>
-<pre class="r"><code># Helper function for merging columns from data2 into data1
-# The function makes sure there is no column duplications when
-# adding information from data2 into data1
-merge_avoid_col_dup&lt;-function(data1,data2,by_col){
-  data2_cols = c(by_col,setdiff(colnames(data2),colnames(data1)))
-  res = merge(data1, data2[,data2_cols], by=by_col)
-  return(res)
-}
-# Note that Specimen.Processing is intentionally the last added dataset
-# We merge by PIDs so all data before that are animal-level data
-formnames = c(&quot;Acute.Test&quot;,&quot;Animal.Familiarization&quot;,
-              &quot;Animal.Key&quot;,&quot;Animal.Registration&quot;,
-              &quot;Specimen.Collection&quot;,&quot;Specimen.Processing&quot;,
-              &quot;Calculated.Variables&quot;)
-merged_dmaqc_data = c()
-for(currname in formnames){
-  form_ind = which(grepl(currname,names(csv_data)))
-  if(length(form_ind)==0){
-    print(paste(&quot;Error, missing form:&quot;,currname))
+<p>We now merge the tables using the common column pid for animal data and labelid for specimen data.</p>
+<pre class="r"><code># Define the columns to generate in the final dictionary
+DICT_COLS = names(dict_data$Registration)
+# helper function for adding fields to the dictionary
+get_dict_subset_by_field_names&lt;-function(newfields,d2,cols){
+  m = d2[d2[,&quot;Field.Name&quot;] %in% newfields,]
+  for(col in setdiff(cols,names(d2))){
+    m[[col]] = NA
   }
-  curr_data = csv_data[[form_ind]]
-  # make sure we do not change the names of the id columns
-  colnames(curr_data) = tolower(colnames(curr_data))
-  columns_to_append = !is.element(colnames(curr_data),
-              set = c(&quot;bid&quot;,&quot;pid&quot;,&quot;labelid&quot;,&quot;vialid&quot;,&quot;viallabel&quot;))
-  colnames(curr_data)[columns_to_append] = 
-    paste(currname,colnames(curr_data)[columns_to_append],sep=&quot;.&quot;)
-  colnames(curr_data) = tolower(colnames(curr_data))
+  rownames(m) = m[,&quot;Field.Name&quot;]
+  m = m[newfields,]
+  rownames(m) = NULL
+  return(m)
+}
 
-  if(length(merged_dmaqc_data)==0){
-    merged_dmaqc_data = curr_data
+merged_dmaqc_data = c()
+merged_dmaqc_dict = c()
+# Start with merging by pid
+for(currname in names(dict_data)[1:9]){
+  curr_data = csv_data[[currname]]
+  if(currname %in% names(R)){
+    curr_data_subset = curr_data[,
+         setdiff(names(curr_data),R[[currname]])]
   }
   else{
-    # get the merge column - if the data has a label id then use it
-    # otherwise use the animal id
-    by_col = &quot;pid&quot;
-    if(is.element(&quot;labelid&quot;,colnames(merged_dmaqc_data)) &amp;&amp;
-       is.element(&quot;labelid&quot;,colnames(curr_data))){
-          by_col = &quot;labelid&quot;
-     }
-    print(paste(&quot;merging in table:&quot;,currname,&quot;, by col:&quot;, by_col))
-    merged_dmaqc_data = merge_avoid_col_dup(merged_dmaqc_data,curr_data,by_col)
+    curr_data_subset = curr_data
   }
-}
-print(&quot;Merged animal and biospecimen data tables, dim is:&quot;)
-print(dim(merged_dmaqc_data))
+  
+  # Remove id columns that were previously added, this way
+  # we keep ones that were already seen
+  merged_data_covered_id_cols = intersect(ID_COLS,colnames(merged_dmaqc_data))
+  covered_id_col = names(curr_data_subset) %in% merged_data_covered_id_cols
+  curr_data_subset = curr_data_subset[,!covered_id_col]
+  # Keep the original names and add pid if necessary
+  original_names = names(curr_data_subset)
+  is_pid = colnames(curr_data_subset) == &quot;pid&quot;
+  is_id_col = colnames(curr_data_subset) %in% ID_COLS
+  # Make the current dataset field names fit our Alt.Field.Name
+  colnames(curr_data_subset)[!is_id_col] =
+    paste(currname,colnames(curr_data_subset)[!is_id_col],sep=&quot;.&quot;)
+  # Add the pid column back for the merge
+  curr_data_subset[[&quot;pid&quot;]] = curr_data[[&quot;pid&quot;]]
 
-# Now map DMAQC's label ids to vialids
-# Sort to make the most up to date file the first in the order
-mapping_files = sort(all_csvs[grepl(&quot;BICLabelData&quot;,all_csvs)],decreasing = T) 
-mapping_info = csv_data[[mapping_files[1]]]
+  if(length(merged_dmaqc_data)==0){
+    merged_dmaqc_data = curr_data_subset
+  }
+  else{
+    merged_dmaqc_data = 
+      merge(merged_dmaqc_data,curr_data_subset,by=&quot;pid&quot;)
+  }
+  
+  merged_dmaqc_dict = rbind(merged_dmaqc_dict,
+        get_dict_subset_by_field_names(original_names,dict_data[[currname]],DICT_COLS)
+  )
+}
+
+# Add the calculated variables using the label id
+currname = &quot;Calculated.Variables&quot;
+curr_data = csv_data[[currname]]
+curr_data_subset = curr_data
+# Remove id columns that were previously added
+merged_data_covered_id_cols = intersect(ID_COLS,colnames(merged_dmaqc_data))
+covered_id_col = names(curr_data_subset) %in% merged_data_covered_id_cols
+curr_data_subset = curr_data_subset[,!covered_id_col]
+# Keep the original names and add pid if necessart
+original_names = names(curr_data_subset)
+is_id_col = colnames(curr_data_subset) %in% ID_COLS
+colnames(curr_data_subset)[!is_id_col] =
+    paste(currname,colnames(curr_data_subset)[!is_id_col],sep=&quot;.&quot;)
+curr_data_subset[[&quot;labelid&quot;]] = curr_data[[&quot;labelid&quot;]]
+merged_dmaqc_data = merge(merged_dmaqc_data,curr_data_subset,by=&quot;labelid&quot;)
+merged_dmaqc_dict = 
+  rbind(merged_dmaqc_dict,
+       get_dict_subset_by_field_names(original_names,dict_data[[currname]],DICT_COLS)
+  )
+
+print(&quot;Merged dataset dim:&quot;)</code></pre>
+<pre><code>## [1] &quot;Merged dataset dim:&quot;</code></pre>
+<pre class="r"><code>print(dim(merged_dmaqc_data))</code></pre>
+<pre><code>## [1] 10512   456</code></pre>
+<pre class="r"><code>print(&quot;Doctionary dim:&quot;)</code></pre>
+<pre><code>## [1] &quot;Doctionary dim:&quot;</code></pre>
+<pre class="r"><code>print(dim(merged_dmaqc_dict))</code></pre>
+<pre><code>## [1] 456  10</code></pre>
+<pre class="r"><code># check that the field names match
+print(&quot;Do column names in the data match the dictionary?&quot;)</code></pre>
+<pre><code>## [1] &quot;Do column names in the data match the dictionary?&quot;</code></pre>
+<pre class="r"><code>names1 = names(merged_dmaqc_data)
+names2 = merged_dmaqc_dict$Alt.Field.Name
+print(all(sort(names1)==sort(names2)))</code></pre>
+<pre><code>## [1] TRUE</code></pre>
+<pre class="r"><code>print(&quot;Are the column names unique?&quot;)</code></pre>
+<pre><code>## [1] &quot;Are the column names unique?&quot;</code></pre>
+<pre class="r"><code>print(all(table(names1)==1))</code></pre>
+<pre><code>## [1] TRUE</code></pre>
+<pre class="r"><code># Reorder the dictionary to fit the data
+rownames(merged_dmaqc_dict) = names2
+merged_dmaqc_dict = merged_dmaqc_dict[names1,]
+rownames(merged_dmaqc_dict) = NULL</code></pre>
+<p>Use DMAQC’s mapping of label ids to vial ids and use it to generate a single metadata table that we can share with other sites.</p>
+<pre class="r"><code># Now map DMAQC's label ids to vialids
+mapping_info = csv_data$BICLabelData
 colnames(mapping_info) = tolower(colnames(mapping_info))
 # Not all samples in the specimen data are necessarily covered in the mapping
 # file. The mapping file contains info only about samples that were shipped
 # to CAS. As can be seen here:
-table(is.element(merged_dmaqc_data$labelid,set=mapping_info$labelid))
-# We therefore need to extract the intersection:
+table(is.element(merged_dmaqc_data$labelid,set=mapping_info$labelid))</code></pre>
+<pre><code>## 
+## FALSE  TRUE 
+##  7740  2772</code></pre>
+<pre class="r"><code># We therefore need to extract the intersection:
 shared_labelids = intersect(merged_dmaqc_data$labelid,mapping_info$labelid)
 merged_dmaqc_data = merged_dmaqc_data[
   is.element(merged_dmaqc_data$labelid,set = shared_labelids),]
 mapping_info = mapping_info[
-  is.element(mapping_info$labelid,set = shared_labelids),]
-print(&quot;Merged animal and biospecimen data tables, new dim is:&quot;)
-print(dim(merged_dmaqc_data))
-# We also have a many to one mapping from vial ids to labels, we 
+  is.element(mapping_info$labelid,set = shared_labelids),c(&quot;labelid&quot;,&quot;viallabel&quot;)]
+print(&quot;Merged animal and biospecimen data tables, new dim is:&quot;)</code></pre>
+<pre><code>## [1] &quot;Merged animal and biospecimen data tables, new dim is:&quot;</code></pre>
+<pre class="r"><code>print(dim(merged_dmaqc_data))</code></pre>
+<pre><code>## [1] 2772  456</code></pre>
+<pre class="r"><code># We also have a many to one mapping from vial ids to labels, we 
 # merge the tables to avoid information loss
-merged_dmaqc_data = merge_avoid_col_dup(merged_dmaqc_data,mapping_info,&quot;labelid&quot;)
-print(&quot;Merged animal and biospecimen data tables, after adding vialids, new dim is:&quot;)
-print(dim(merged_dmaqc_data))
+merged_dmaqc_data = merge(merged_dmaqc_data,mapping_info,by=&quot;labelid&quot;)
+print(&quot;Merged animal and biospecimen data tables, after adding vialids, new dim is:&quot;)</code></pre>
+<pre><code>## [1] &quot;Merged animal and biospecimen data tables, after adding vialids, new dim is:&quot;</code></pre>
+<pre class="r"><code>print(dim(merged_dmaqc_data))</code></pre>
+<pre><code>## [1] 12893   457</code></pre>
+<pre class="r"><code># Add the labelid to the dictionary
+names(merged_dmaqc_dict)</code></pre>
+<pre><code>##  [1] &quot;FormName&quot;                            &quot;Field.Name&quot;                         
+##  [3] &quot;Alias..Field.Name.description.&quot;      &quot;Data.Type&quot;                          
+##  [5] &quot;Categorical.Values&quot;                  &quot;Categorical.Definitions&quot;            
+##  [7] &quot;Alt.Field.Name&quot;                      &quot;Calculated.Created.variable..1.yes.&quot;
+##  [9] &quot;Continous.Range.Min&quot;                 &quot;Continous.Range.Max&quot;</code></pre>
+<pre class="r"><code>biclabel_dict = dict_data$BICLabelData
+viallabel_row = biclabel_dict[
+  grepl(&quot;viallabel&quot;,biclabel_dict$Field.Name,ignore.case = T),]
+v = c(&quot;&quot;,&quot;viallabel&quot;,
+      paste(&quot;This is the Primary sample id.&quot;,as.character(viallabel_row[3])),
+      viallabel_row[4:6],
+      &quot;viallabel&quot;,
+      NA,NA,NA
+)
+names(v) = names(merged_dmaqc_dict)
+merged_dmaqc_dict = rbind(merged_dmaqc_dict,v)
 
-#####
-#####
-# Now put the dictionary in one file as well
-#####
-#####
-merged_column_dictionary = c()
-cols_to_take = c(&quot;Field.Name&quot;,&quot;Data.Type&quot;,
-                 &quot;Alias..Field.Name.description.&quot;,
-                 &quot;Categorical.Values&quot;,
-                 &quot;Categorical.Definitions&quot;,
-                 &quot;Continous.Range.Min&quot;,
-                 &quot;Continous.Range.Max&quot;)
-for(currname in formnames){
-  tmp_dict_data = dict_data[[which(grepl(currname,names(dict_data)))]]
-  # take the required columns, feel in missing ones if necessary
-  tmp_dict_data = tmp_dict_data[,intersect(colnames(tmp_dict_data),cols_to_take)]
-  for(missing_col in setdiff(cols_to_take,colnames(tmp_dict_data))){
-    tmp_dict_data[[missing_col]] = rep(NA,nrow(tmp_dict_data))
-  }
-  # make sure we do not change the names of the id columns
-  tmp_dict_data[,1] = tolower(tmp_dict_data[,1])
-  rows_to_append = !is.element(tmp_dict_data[,1],
-              set = c(&quot;bid&quot;,&quot;pid&quot;,&quot;labelid&quot;,&quot;vialid&quot;,&quot;viallabel&quot;))
-  tmp_dict_data[rows_to_append,1] = 
-    paste(tolower(currname),tmp_dict_data[rows_to_append,1],sep=&quot;.&quot;)
-  tmp_dict_data$Form.prefix = rep(currname,nrow(tmp_dict_data))
-  
-  merged_column_dictionary = rbind(merged_column_dictionary,tmp_dict_data)
-}
+print(&quot;Merged dataset dim:&quot;)</code></pre>
+<pre><code>## [1] &quot;Merged dataset dim:&quot;</code></pre>
+<pre class="r"><code>print(dim(merged_dmaqc_data))</code></pre>
+<pre><code>## [1] 12893   457</code></pre>
+<pre class="r"><code>print(&quot;Doctionary dim:&quot;)</code></pre>
+<pre><code>## [1] &quot;Doctionary dim:&quot;</code></pre>
+<pre class="r"><code>print(dim(merged_dmaqc_dict))</code></pre>
+<pre><code>## [1] 457  10</code></pre>
+<pre class="r"><code># check that the field names match
+print(&quot;Do column names in the data match the dictionary?&quot;)</code></pre>
+<pre><code>## [1] &quot;Do column names in the data match the dictionary?&quot;</code></pre>
+<pre class="r"><code>names1 = names(merged_dmaqc_data)
+names2 = merged_dmaqc_dict$Alt.Field.Name
+print(all(sort(names1)==sort(names2)))</code></pre>
+<pre><code>## [1] TRUE</code></pre>
+<pre class="r"><code>print(&quot;Are the column names unique?&quot;)</code></pre>
+<pre><code>## [1] &quot;Are the column names unique?&quot;</code></pre>
+<pre class="r"><code>print(all(table(names1)==1))</code></pre>
+<pre><code>## [1] TRUE</code></pre>
+<pre class="r"><code># Reorder the dictionary to fit the data
+rownames(merged_dmaqc_dict) = names2
+merged_dmaqc_dict = merged_dmaqc_dict[names1,]
+rownames(merged_dmaqc_dict) = NULL
 
-# Final checks of the data
-dim(merged_dmaqc_data)
-merged_column_dictionary = merged_column_dictionary[is.element(
-  merged_column_dictionary[,1],set=colnames(merged_dmaqc_data)
-  ),]
-dim(merged_column_dictionary)
-merged_column_dictionary = unique(merged_column_dictionary)
-dim(merged_column_dictionary)</code></pre>
+# Finally, make the ID columns the first columns that appear in the data
+curr_id_col_inds = which(names2 %in% ID_COLS)
+curr_other_col_inds = which(!(names2 %in% ID_COLS))
+neworder = c(curr_id_col_inds,curr_other_col_inds)
+merged_dmaqc_data = merged_dmaqc_data[,neworder]
+merged_dmaqc_dict = merged_dmaqc_dict[neworder,]
+
+print(&quot;Merged dataset dim:&quot;)</code></pre>
+<pre><code>## [1] &quot;Merged dataset dim:&quot;</code></pre>
+<pre class="r"><code>print(dim(merged_dmaqc_data))</code></pre>
+<pre><code>## [1] 12893   457</code></pre>
+<pre class="r"><code>print(&quot;Doctionary dim:&quot;)</code></pre>
+<pre><code>## [1] &quot;Doctionary dim:&quot;</code></pre>
+<pre class="r"><code>print(dim(merged_dmaqc_dict))</code></pre>
+<pre><code>## [1] 457  10</code></pre>
+<pre class="r"><code># check that the field names match
+print(&quot;Do column names in the data the same as the dictionary fields?&quot;)</code></pre>
+<pre><code>## [1] &quot;Do column names in the data the same as the dictionary fields?&quot;</code></pre>
+<pre class="r"><code>names1 = names(merged_dmaqc_data)
+names2 = merged_dmaqc_dict$Alt.Field.Name
+print(all(names1==names2))</code></pre>
+<pre><code>## [1] TRUE</code></pre>
 </div>
 <div id="save-the-merged-datasets-in-the-cloud" class="section level1">
 <h1>Save the merged datasets in the cloud</h1>
-<pre class="r"><code># Solve some formatting issues and columns that are redundant or wrong
-merged_column_dictionary = as.matrix(merged_column_dictionary)
-# All NAs are &quot;&quot;
-merged_column_dictionary[is.na(merged_column_dictionary)] = &quot;&quot;
-# Remove duplications
-merged_column_dictionary = unique(merged_column_dictionary)
-# Add the vial label
-merged_column_dictionary = rbind(
-  c(&quot;viallabel&quot;,&quot;The primary analyzed sample id, corresponds to a row in the data table&quot;,
-    &quot;varchar&quot;,NA,NA,NA,NA,&quot;&quot;),
-  merged_column_dictionary
-)
-# remove: deathtime_after_acute and and frozetime_after_acute
-ind1 = which(grepl(&quot;deathtime_after_acute&quot;,merged_column_dictionary[,1]))
-ind2 = which(grepl(&quot;deathtime_after_acute&quot;,colnames(merged_dmaqc_data)))
-merged_column_dictionary = merged_column_dictionary[-ind1,]
-merged_dmaqc_data = merged_dmaqc_data[,-ind2]
-ind1 = which(grepl(&quot;frozetime_after_acute&quot;,merged_column_dictionary[,1]))
-ind2 = which(grepl(&quot;frozetime_after_acute&quot;,colnames(merged_dmaqc_data)))
-merged_column_dictionary = merged_column_dictionary[-ind1,]
-merged_dmaqc_data = merged_dmaqc_data[,-ind2]
-
-# To see the bucket list
-# gsutil ls -p motrpac-portal-dev
-currdate = Sys.Date()
+<pre class="r"><code>currdate = Sys.Date()
 txtname = paste(&quot;merged_dmaqc_data&quot;,currdate,&quot;.txt&quot;,sep=&quot;&quot;)
 rdataname = paste(&quot;merged_dmaqc_data&quot;,currdate,&quot;.RData&quot;,sep=&quot;&quot;)
-dictfname = paste(&quot;merged_column_dictionary&quot;,currdate,&quot;.txt&quot;,sep=&quot;&quot;)
-write.table(merged_dmaqc_data,file=txtname,
-            quote = F,sep=&quot;\t&quot;,row.names = F)
+dictfname = paste(&quot;merged_dmaqc_dict&quot;,currdate,&quot;.txt&quot;,sep=&quot;&quot;)
+write.table(merged_dmaqc_data,file=txtname,quote = F,sep=&quot;\t&quot;,row.names = F)
 save(merged_dmaqc_data,file=rdataname)
-write.table(merged_column_dictionary,file=dictfname,
-            quote = F,sep=&quot;\t&quot;,row.names = F)
+write.table(merged_dmaqc_dict,file=dictfname,quote = F,sep=&quot;\t&quot;,row.names = F)
 system(paste(&quot;~/google-cloud-sdk/bin/gsutil cp&quot;, txtname,
-             &quot;gs://bic_data_analysis/pass1a/pheno_dmaqc/&quot;))
+             &quot;gs://bic_data_analysis/pass1b/pheno_dmaqc/&quot;))
 system(paste(&quot;~/google-cloud-sdk/bin/gsutil cp&quot;, rdataname,
-             &quot;gs://bic_data_analysis/pass1a/pheno_dmaqc/&quot;))
+             &quot;gs://bic_data_analysis/pass1b/pheno_dmaqc/&quot;))
 system(paste(&quot;~/google-cloud-sdk/bin/gsutil cp&quot;, dictfname,
-             &quot;gs://bic_data_analysis/pass1a/pheno_dmaqc/&quot;))
-system(paste(&quot;~/google-cloud-sdk/bin/gsutil cp&quot;, 
-             &quot;~/Desktop/repos/motrpac/animal_data/README.txt&quot;,
-             &quot;gs://bic_data_analysis/pass1a/pheno_dmaqc/&quot;))
+             &quot;gs://bic_data_analysis/pass1b/pheno_dmaqc/&quot;))</code></pre>
+</div>
+<div id="sanity-checks-and-qa" class="section level1">
+<h1>Sanity checks and QA</h1>
+<p>We now reread the raw data and compare it to our merged table using selected columns.</p>
+<pre class="r"><code>all_csvs = list.files(dmaqc_data_dir,full.names = T) # get all files in dir
+all_csvs = all_csvs[grepl(&quot;.csv$&quot;,all_csvs)] # make sure we take csv only
+# read all files
+csv_data = list()
+for(fname in all_csvs){
+  fname_wo_path = strsplit(fname,split='/')[[1]]
+  fname_wo_path = fname_wo_path[length(fname_wo_path)]
+  csv_data[[fname_wo_path]] = read.csv(fname,stringsAsFactors = F)
+}# sapply(csv_data,dim) # check the dimensions of the different datasets
+names(csv_data) = 
+  sapply(names(csv_data),function(x)strsplit(x,split=&quot;PASS_Animal.&quot;)[[1]][2])
+names(csv_data) = gsub(&quot;.csv&quot;,&quot;&quot;,names(csv_data))
 
-system(paste(&quot;rm&quot;, txtname))
-system(paste(&quot;rm&quot;, rdataname))
-system(paste(&quot;rm&quot;, dictfname))</code></pre>
+check_two_feature_tables&lt;-function(x1,x2){
+  x1 = unique(x1)
+  x2 = unique(x2)
+  tests = all(x2[,1] %in% x1[,1])
+  x1 = x1[x1[,1] %in% x2[,1],]
+  x1 = x1[order(x1[,1],x1[,2]),]
+  x2 = x2[order(x2[,1],x2[,2]),]
+  tests = c(tests,all(dim(x1)==dim(x2)))
+  if(!tests[2]){return(FALSE)}
+  tests = c(tests,all(is.na(x1)==is.na(x2),na.rm = T))
+  tests = c(tests,all(x1==x2,na.rm = T))
+  return(all(tests))
+}
+
+# check the sex and weight
+sex_info_1 = unique(csv_data$Registration[,c(&quot;pid&quot;,&quot;sex&quot;)])
+sex_info_2 = unique(merged_dmaqc_data[,c(&quot;pid&quot;,&quot;Registration.sex&quot;)])
+check_two_feature_tables(sex_info_1,sex_info_2)</code></pre>
+<pre><code>## [1] TRUE</code></pre>
+<pre class="r"><code>w_info_1 = unique(csv_data$Registration[,c(&quot;pid&quot;,&quot;weight&quot;)])
+w_info_2 = unique(merged_dmaqc_data[,c(&quot;pid&quot;,&quot;Registration.weight&quot;)])
+check_two_feature_tables(w_info_1,w_info_2)</code></pre>
+<pre><code>## [1] TRUE</code></pre>
+<pre class="r"><code># check the randomization group
+g_info_1 = unique(csv_data$Key[,c(&quot;pid&quot;,&quot;ANIRandGroup&quot;)])
+g_info_2 = unique(merged_dmaqc_data[,c(&quot;pid&quot;,&quot;Key.ANIRandGroup&quot;)])
+check_two_feature_tables(g_info_1,g_info_2)</code></pre>
+<pre><code>## [1] TRUE</code></pre>
+<pre class="r"><code># Check familiarization days_treadmillbegin and fat
+dt_info_1 = unique(csv_data$Familiarization[,c(&quot;pid&quot;,&quot;days_treadmillbegin&quot;)])
+dt_info_2 = unique(merged_dmaqc_data[,c(&quot;pid&quot;,&quot;Familiarization.days_treadmillbegin&quot;)])
+check_two_feature_tables(dt_info_1,dt_info_2)</code></pre>
+<pre><code>## [1] TRUE</code></pre>
+<pre class="r"><code>f_info_1 = unique(csv_data$Familiarization[,c(&quot;pid&quot;,&quot;fat&quot;)])
+f_info_2 = unique(merged_dmaqc_data[,c(&quot;pid&quot;,&quot;Familiarization.fat&quot;)])
+check_two_feature_tables(f_info_1,f_info_2)</code></pre>
+<pre><code>## [1] TRUE</code></pre>
+<pre class="r"><code># Check tissues
+tissue_info_1 = unique(csv_data$Specimen.Processing[,c(&quot;labelid&quot;,&quot;sampletypedescription&quot;)])
+tissue_info_2 = unique(merged_dmaqc_data[,
+                  c(&quot;labelid&quot;,&quot;Specimen.Processing.sampletypedescription&quot;)])
+check_two_feature_tables(tissue_info_1,tissue_info_2)</code></pre>
+<pre><code>## [1] TRUE</code></pre>
+<pre class="r"><code># Check VO2
+vo2_info_1 = unique(csv_data$VO2.Max.Test[,c(&quot;pid&quot;,&quot;vo2_max&quot;)])
+vo2_info_2 = unique(merged_dmaqc_data[,c(&quot;pid&quot;,&quot;VO2.Max.Test.vo2_max&quot;)])
+check_two_feature_tables(vo2_info_1,vo2_info_2)</code></pre>
+<pre><code>## [1] TRUE</code></pre>
+</div>
+<div id="remaining-issues-and-questions" class="section level1">
+<h1>Remaining issues and questions</h1>
+<div id="for-dmaqc" class="section level2">
+<h2>For DMAQC</h2>
+<ol style="list-style-type: decimal">
+<li>Should we keep d_visit and similar fields? for example for pid’s with more than a single vo2 max score</li>
+<li>FormName vs. Sample.Type</li>
+<li>Some tables do not have the fieldguid</li>
+<li>Okay to ignore the site-level csvs?</li>
+<li>Can we assume that the fields are exactly the same for each project, e.g., 1B 6M vs. 1B 18M.</li>
+</ol>
+</div>
+<div id="for-bic" class="section level2">
+<h2>For BIC</h2>
+<ol style="list-style-type: decimal">
+<li>Should we create shoertened field names. We can do something like “PASS1BF00001” etc.</li>
+<li>Can we compare to the CAS metadata files?</li>
+</ol>
+</div>
 </div>
 
 
