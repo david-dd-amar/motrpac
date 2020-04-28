@@ -97,10 +97,10 @@ tar_vs_untar_norm_pairs = data.frame(
 )
 # specify time points for pairwise differential analysis
 tp_pairs_for_de = data.frame(
-  tp1 = c(0.0,1.0,4.0,4.0,24.0,7.0),
-  tp1_is_control = c(F,F,F,F,F,F),
-  tp2 = c(0.0,0.0,1.0,7.0,0.0,7.0),
-  tp2_is_control = c(T,F,F,T,T,T)
+  tp1 = c(1.0,4.0,7.0,24.0,7.0,0.0),
+  tp1_is_control = c(F,F,F,F,F,T),
+  tp2 = c(0.0,1.0,4.0,0.0,7.0,7.0),
+  tp2_is_control = c(F,F,F,T,T,T)
 )
 ```
 
