@@ -1,0 +1,19 @@
+We provide the phenotypic and biospecimen metadata in a single large table called merged_dmaqc_data.  It has a row for each vial label (the main sample id). Thus, animal/specimen with a labelid but without vials are not represented here. 
+
+We also provide the dictionary of the columns (the data fields) in merged_dmaqc_dict.txt. Row j in this table provides information about the field in column j of merged_dmaqc_data.
+
+Except for viallabel, labelid, pid, and bid the column format is:
+"w1.w2", where:
+w1 the column type, which is largely the form from which it was taken (e.g., Registration)
+w2 is the feature/field name (e.g., sex)
+
+Notable useful columns are:
+  viallabel - can be used to map molecular data to the phenotypic metadata
+  labelid,bid,pid - higher level ids (order is pid,bid,labelid,vialabel)
+  Registration.sex,
+  Registration.weight,
+  VO2.Max.Test.vo2_max - the VO2 score
+  Fields that start with "Key" provide information about the randomization group (e.g., Key.ANIRandGroup)
+  Fields that start with "calculated.variables": weight and sample time calculated features (e.g., sample freeze time)
+
+  

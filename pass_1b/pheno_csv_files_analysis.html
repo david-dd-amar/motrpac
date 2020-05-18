@@ -2123,6 +2123,13 @@ neworder = c(curr_id_col_inds,curr_other_col_inds)
 merged_dmaqc_data = merged_dmaqc_data[,neworder]
 merged_dmaqc_dict = merged_dmaqc_dict[neworder,]
 
+names2 = merged_dmaqc_dict$Alt.Field.Name
+curr_id_col_inds = which(names2 == &quot;viallabel&quot;)
+curr_other_col_inds = which(names2 != &quot;viallabel&quot;)
+neworder = c(curr_id_col_inds,curr_other_col_inds)
+merged_dmaqc_data = merged_dmaqc_data[,neworder]
+merged_dmaqc_dict = merged_dmaqc_dict[neworder,]
+
 print(&quot;Merged dataset dim:&quot;)</code></pre>
 <pre><code>## [1] &quot;Merged dataset dim:&quot;</code></pre>
 <pre class="r"><code>print(dim(merged_dmaqc_data))</code></pre>
@@ -2138,22 +2145,6 @@ print(&quot;Do column names in the data the same as the dictionary fields?&quot;
 names2 = merged_dmaqc_dict$Alt.Field.Name
 print(all(names1==names2))</code></pre>
 <pre><code>## [1] TRUE</code></pre>
-</div>
-<div id="save-the-merged-datasets-in-the-cloud" class="section level1">
-<h1>Save the merged datasets in the cloud</h1>
-<pre class="r"><code>currdate = Sys.Date()
-txtname = paste(&quot;merged_dmaqc_data&quot;,currdate,&quot;.txt&quot;,sep=&quot;&quot;)
-rdataname = paste(&quot;merged_dmaqc_data&quot;,currdate,&quot;.RData&quot;,sep=&quot;&quot;)
-dictfname = paste(&quot;merged_dmaqc_dict&quot;,currdate,&quot;.txt&quot;,sep=&quot;&quot;)
-write.table(merged_dmaqc_data,file=txtname,quote = F,sep=&quot;\t&quot;,row.names = F)
-save(merged_dmaqc_data,file=rdataname)
-write.table(merged_dmaqc_dict,file=dictfname,quote = F,sep=&quot;\t&quot;,row.names = F)
-system(paste(&quot;~/google-cloud-sdk/bin/gsutil cp&quot;, txtname,
-             &quot;gs://bic_data_analysis/pass1b/pheno_dmaqc/&quot;))
-system(paste(&quot;~/google-cloud-sdk/bin/gsutil cp&quot;, rdataname,
-             &quot;gs://bic_data_analysis/pass1b/pheno_dmaqc/&quot;))
-system(paste(&quot;~/google-cloud-sdk/bin/gsutil cp&quot;, dictfname,
-             &quot;gs://bic_data_analysis/pass1b/pheno_dmaqc/&quot;))</code></pre>
 </div>
 <div id="sanity-checks-and-qa" class="section level1">
 <h1>Sanity checks and QA</h1>
@@ -2219,6 +2210,42 @@ vo2_info_1 = unique(csv_data$VO2.Max.Test[,c(&quot;pid&quot;,&quot;vo2_max&quot;
 vo2_info_2 = unique(merged_dmaqc_data[,c(&quot;pid&quot;,&quot;VO2.Max.Test.vo2_max&quot;)])
 check_two_feature_tables(vo2_info_1,vo2_info_2)</code></pre>
 <pre><code>## [1] TRUE</code></pre>
+</div>
+<div id="save-the-merged-datasets-in-the-cloud" class="section level1">
+<h1>Save the merged datasets in the cloud</h1>
+<pre class="r"><code># change the names to fit pass1a
+names1 = colnames(merged_dmaqc_data)
+names2 = merged_dmaqc_dict$Alt.Field.Name
+all(names1==names2)</code></pre>
+<pre><code>## [1] TRUE</code></pre>
+<pre class="r"><code>animal_fields = grepl(&quot;^(Key|Registration|Famili|NMR|Training|VO2)&quot;,names1,perl = T)
+names1[animal_fields] = paste0(&quot;Animal.&quot;,names1[animal_fields])
+names1 = tolower(names1)
+merged_dmaqc_dict$Alt.Field.Name = names1
+colnames(merged_dmaqc_data) = names1
+
+currdate = Sys.Date()
+txtname = paste(&quot;merged_dmaqc_data&quot;,currdate,&quot;.txt&quot;,sep=&quot;&quot;)
+rdataname = paste(&quot;merged_dmaqc_data&quot;,currdate,&quot;.RData&quot;,sep=&quot;&quot;)
+dictfname = paste(&quot;merged_dmaqc_dict&quot;,currdate,&quot;.txt&quot;,sep=&quot;&quot;)
+write.table(merged_dmaqc_data,file=txtname,quote = F,sep=&quot;\t&quot;,row.names = F)
+save(merged_dmaqc_data,file=rdataname)
+write.table(merged_dmaqc_dict,file=dictfname,quote = F,sep=&quot;\t&quot;,row.names = F)
+system(paste(&quot;~/google-cloud-sdk/bin/gsutil cp&quot;, txtname,
+             &quot;gs://bic_data_analysis/pass1b/pheno_dmaqc/&quot;))
+system(paste(&quot;~/google-cloud-sdk/bin/gsutil cp&quot;, rdataname,
+             &quot;gs://bic_data_analysis/pass1b/pheno_dmaqc/&quot;))
+system(paste(&quot;~/google-cloud-sdk/bin/gsutil cp&quot;, dictfname,
+             &quot;gs://bic_data_analysis/pass1b/pheno_dmaqc/&quot;))
+
+# Compare to the prev version
+x1 = merged_dmaqc_data
+x2 = load_from_bucket(&quot;merged_dmaqc_data2020-04-29.RData&quot;,&quot;gs://bic_data_analysis/pass1b/pheno_dmaqc/&quot;)
+x2 = x2$merged_dmaqc_data
+table(x2==x1)</code></pre>
+<pre><code>## 
+##    TRUE 
+## 3975802</code></pre>
 </div>
 <div id="remaining-issues-and-questions" class="section level1">
 <h1>Remaining issues and questions</h1>

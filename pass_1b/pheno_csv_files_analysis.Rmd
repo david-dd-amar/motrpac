@@ -328,6 +328,13 @@ neworder = c(curr_id_col_inds,curr_other_col_inds)
 merged_dmaqc_data = merged_dmaqc_data[,neworder]
 merged_dmaqc_dict = merged_dmaqc_dict[neworder,]
 
+names2 = merged_dmaqc_dict$Alt.Field.Name
+curr_id_col_inds = which(names2 == "viallabel")
+curr_other_col_inds = which(names2 != "viallabel")
+neworder = c(curr_id_col_inds,curr_other_col_inds)
+merged_dmaqc_data = merged_dmaqc_data[,neworder]
+merged_dmaqc_dict = merged_dmaqc_dict[neworder,]
+
 print("Merged dataset dim:")
 print(dim(merged_dmaqc_data))
 print("Doctionary dim:")
@@ -339,23 +346,6 @@ names2 = merged_dmaqc_dict$Alt.Field.Name
 print(all(names1==names2))
 ```
 
-# Save the merged datasets in the cloud
-
-```{r,eval=T}
-currdate = Sys.Date()
-txtname = paste("merged_dmaqc_data",currdate,".txt",sep="")
-rdataname = paste("merged_dmaqc_data",currdate,".RData",sep="")
-dictfname = paste("merged_dmaqc_dict",currdate,".txt",sep="")
-write.table(merged_dmaqc_data,file=txtname,quote = F,sep="\t",row.names = F)
-save(merged_dmaqc_data,file=rdataname)
-write.table(merged_dmaqc_dict,file=dictfname,quote = F,sep="\t",row.names = F)
-system(paste("~/google-cloud-sdk/bin/gsutil cp", txtname,
-             "gs://bic_data_analysis/pass1b/pheno_dmaqc/"))
-system(paste("~/google-cloud-sdk/bin/gsutil cp", rdataname,
-             "gs://bic_data_analysis/pass1b/pheno_dmaqc/"))
-system(paste("~/google-cloud-sdk/bin/gsutil cp", dictfname,
-             "gs://bic_data_analysis/pass1b/pheno_dmaqc/"))
-```
 
 # Sanity checks and QA
 
@@ -422,6 +412,41 @@ vo2_info_2 = unique(merged_dmaqc_data[,c("pid","VO2.Max.Test.vo2_max")])
 check_two_feature_tables(vo2_info_1,vo2_info_2)
 
 ```
+
+# Save the merged datasets in the cloud
+
+```{r,eval=T}
+# change the names to fit pass1a
+names1 = colnames(merged_dmaqc_data)
+names2 = merged_dmaqc_dict$Alt.Field.Name
+all(names1==names2)
+animal_fields = grepl("^(Key|Registration|Famili|NMR|Training|VO2)",names1,perl = T)
+names1[animal_fields] = paste0("Animal.",names1[animal_fields])
+names1 = tolower(names1)
+merged_dmaqc_dict$Alt.Field.Name = names1
+colnames(merged_dmaqc_data) = names1
+
+currdate = Sys.Date()
+txtname = paste("merged_dmaqc_data",currdate,".txt",sep="")
+rdataname = paste("merged_dmaqc_data",currdate,".RData",sep="")
+dictfname = paste("merged_dmaqc_dict",currdate,".txt",sep="")
+write.table(merged_dmaqc_data,file=txtname,quote = F,sep="\t",row.names = F)
+save(merged_dmaqc_data,file=rdataname)
+write.table(merged_dmaqc_dict,file=dictfname,quote = F,sep="\t",row.names = F)
+system(paste("~/google-cloud-sdk/bin/gsutil cp", txtname,
+             "gs://bic_data_analysis/pass1b/pheno_dmaqc/"))
+system(paste("~/google-cloud-sdk/bin/gsutil cp", rdataname,
+             "gs://bic_data_analysis/pass1b/pheno_dmaqc/"))
+system(paste("~/google-cloud-sdk/bin/gsutil cp", dictfname,
+             "gs://bic_data_analysis/pass1b/pheno_dmaqc/"))
+
+# Compare to the prev version
+x1 = merged_dmaqc_data
+x2 = load_from_bucket("merged_dmaqc_data2020-04-29.RData","gs://bic_data_analysis/pass1b/pheno_dmaqc/")
+x2 = x2$merged_dmaqc_data
+table(x2==x1)
+```
+
 
 # Remaining issues and questions
 
