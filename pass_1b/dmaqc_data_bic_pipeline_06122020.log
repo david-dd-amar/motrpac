@@ -1,0 +1,78 @@
+[1] "Loading data from buckets"
+[1] "--------------------------------------------------------------"
+[1] "Current bucket: gs://motrpac-portal-transfer-dmaqc/DMAQC_TRANSFER_PASS_1B.6M_1.00/ , bucket name is: pass1b_6m"
+[1] "Current bucket: gs://motrpac-portal-transfer-dmaqc/DMAQC_TRANSFER_PASS_1B.18M_1.00/ , bucket name is: pass1b_18m"
+[1] "Warning: no BICLabelData csv in data from bucket: gs://motrpac-portal-transfer-dmaqc/DMAQC_TRANSFER_PASS_1B.18M_1.00/"
+[1] "skipping this csv but keeping the others"
+[1] "Done"
+[1] "Going over dictionaries"
+[1] "--------------------------------------------------------------"
+[1] "Verifying that all field names appear in the dictionaries"
+[1] "Done"
+[1] "Extracting unique field ids"
+[1] "--------------------------------------------------------------"
+[1] "created the metadata table of the fields"
+[1] "Here are the first 10 rows:"
+BICUniqueID	FullName	Field.Name	CsvName	BucketSource	VersionNumber
+pass1bf0001	pid	pid	Key	pass1b_6m	
+pass1bf0002	bid	bid	Specimen.Processing	pass1b_6m	
+pass1bf0003	labelid	labelid	Specimen.Processing	pass1b_6m	
+pass1bf0004	viallabel	viallabel			
+pass1bf0005	Key.protocol	protocol	Key	pass1b_6m	
+pass1bf0006	Key.agegroup	agegroup	Key	pass1b_6m	
+pass1bf0007	Key.d_arrive	d_arrive	Key	pass1b_6m	
+pass1bf0008	Key.d_sacrifice	d_sacrifice	Key	pass1b_6m	
+pass1bf0009	Key.intervention	intervention	Key	pass1b_6m	
+pass1bf0010	Key.sacrificetime	sacrificetime	Key	pass1b_6m	
+[1] "Creating the merged dictionary..."
+[1] "Done, first 10 rows and 10 columns:"
+BICUniqueID	FullName	Field.Name	CsvName	Alias..Field.Name.description.	Data.Type
+pass1bf0001	pid	pid	Key	Unique, randomly generated 8 digit numeric identifier used in linkage to phenotypic data	varchar
+pass1bf0002	bid	bid	Specimen.Processing	Unique 5 digit numeric identifier of all samples collected for an acute test/sample collection period. All samples collected during that period will have the same BID.	varchar
+pass1bf0003	labelid	labelid	Specimen.Processing	Unique 11 digit identifier for specimen label ID, originating at the collection site, that provides a link to specimen processing and used for shipments to the biorepository (will be the same as VialLabel only in instances where aliquots are not further processed at the biorepository)	varchar
+pass1bf0004	viallabel	viallabel			
+pass1bf0005	Key.protocol	protocol	Key	Protocol in which the procedures for sample collection were outlined.	int
+pass1bf0006	Key.agegroup	agegroup	Key	Age group for the animal	int
+pass1bf0007	Key.d_arrive	d_arrive	Key	Date animal arrived at site (d_arrive from Animal Registration Form)	datetime
+pass1bf0008	Key.d_sacrifice	d_sacrifice	Key	Date animal sacrificed (d_visit from Animal Specimen Collection Form)	datetime
+pass1bf0009	Key.intervention	intervention	Key	For Phase 1A the exercise group is defined by those who complete the acute exercise test. For Phase 1B the exercise group is defined by those who complete exercise training.	int
+pass1bf0010	Key.sacrificetime	sacrificetime	Key	For Phase 1A Sacrifice Time refers to the number of hours prior to sacrifice (post-acute test for the exercise group). For Phase 1B Sacrifice Time refers to the number of weeks of training.	int
+[1] "Merging data tables"
+[1] "--------------------------------------------------------------"
+[1] "analyzing data from bucket: pass1b_6m"
+[1] "After adding data from: Key we now have: 156 rows in the merged matrix"
+[1] "After adding data from: Registration we now have: 156 rows in the merged matrix"
+[1] "After adding data from: Familiarization we now have: 156 rows in the merged matrix"
+[1] "After adding data from: Training we now have: 156 rows in the merged matrix"
+[1] "After adding data from: VO2.Max.Test we now have: 156 rows in the merged matrix"
+[1] "After adding data from: NMR.Testing we now have: 156 rows in the merged matrix"
+[1] "After adding data from: Terminal.Weight we now have: 156 rows in the merged matrix"
+[1] "After adding data from: Specimen.Collection we now have: 156 rows in the merged matrix"
+[1] "After adding data from: Specimen.Processing we now have: 3774 rows in the merged matrix"
+[1] "Warning: id column labelid has NA values in Calculated.Variables removing these rows"
+[1] "After adding data from: Calculated.Variables we now have: 8560 rows in the merged matrix"
+[1] "analyzing data from bucket: pass1b_18m"
+[1] "After adding data from: Key we now have: 155 rows in the merged matrix"
+[1] "After adding data from: Registration we now have: 155 rows in the merged matrix"
+[1] "After adding data from: Familiarization we now have: 155 rows in the merged matrix"
+[1] "After adding data from: Training we now have: 155 rows in the merged matrix"
+[1] "After adding data from: VO2.Max.Test we now have: 155 rows in the merged matrix"
+[1] "After adding data from: NMR.Testing we now have: 155 rows in the merged matrix"
+[1] "After adding data from: Terminal.Weight we now have: 155 rows in the merged matrix"
+[1] "After adding data from: Specimen.Collection we now have: 155 rows in the merged matrix"
+[1] "After adding data from: Specimen.Processing we now have: 4788 rows in the merged matrix"
+[1] "Warning: id column labelid has NA values in Calculated.Variables removing these rows"
+[1] "After adding data from: Calculated.Variables we now have: 8558 rows in the merged matrix"
+[1] "Running QA to verify the merged datasets, if all are fine no errors are printed below"
+[1] "--------------------------------------------------------------"
+[1] "checking the labelid-level tables; these should contain all animals"
+[1] "checking the vaillabel tables; these are compared to the label-level data"
+[1] "(should be used only if there are no errors printed for the label-level data)"
+[1] "Done running all tests!"
+[1] "Saving the results to the bucket:"
+[1] "--------------------------------------------------------------"
+[1] "gs://bic_data_analysis/pass1b/pheno_dmaqc/merged2020-06-12/"
+[1] "writing merged_dictionary.txt"
+[1] "writing pass1b_6m_labelid_data.txt"
+[1] "writing pass1b_6m_viallabel_data.txt"
+[1] "writing pass1b_18m_labelid_data.txt"
